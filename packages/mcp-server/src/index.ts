@@ -317,6 +317,33 @@ async function main(): Promise<void> {
     notes: z.string().nullable().optional().describe('Internal factual notes.'),
     description: z.string().nullable().optional().describe('Public-facing creator/outlet description.'),
   }
+  const discoveryReference = z.object({
+    label: z.string().min(1).max(160).describe('Reference game title or a topic facet such as Military history.'),
+    aliases: z.array(z.string().min(1)).max(100).optional().describe('Alternate names matched locally in video text.'),
+    queryTerms: z
+      .array(z.string().min(1))
+      .max(100)
+      .optional()
+      .describe('Queries used to seed YouTube search; defaults to the label.'),
+    weight: z.number().min(0.1).max(10).optional().describe('Relative importance in deterministic fit scoring.'),
+  })
+  const discoveryProfileFields = {
+    gameId: id('Game'),
+    name: z.string().min(1).max(160).describe('Reusable, project-scoped search profile name.'),
+    mode: z
+      .enum(['games', 'topic'])
+      .optional()
+      .describe('games matches reference titles; topic matches several facets of an expertise area.'),
+    languages: z.array(z.string().min(2).max(12)).max(10).optional(),
+    includeTerms: z.array(z.string().min(1)).max(100).optional(),
+    excludeTerms: z.array(z.string().min(1)).max(100).optional(),
+    seedChannels: z.array(z.string().min(1)).max(200).optional(),
+    maxSearchRequests: z.number().int().min(1).max(100).optional(),
+    maxChannels: z.number().int().min(10).max(5_000).optional(),
+    recentVideoLimit: z.number().int().min(10).max(100).optional(),
+    discoverContacts: z.boolean().optional(),
+    references: z.array(discoveryReference).min(1).max(100),
+  }
   const toCreatorInput = (a: Record<string, unknown>) => {
     const { topics, playedGames, contacts, channels, rateUsd, ...rest } = a
     const firstChannelUrl = Array.isArray(channels)
@@ -1452,6 +1479,114 @@ async function main(): Promise<void> {
     },
     ({ gameId, items }) =>
       run(() => caller.creators.logTouchesBulk({ gameId, items: items.map((item) => ({ ...item, createdBy: 'ai' })) })),
+  )
+
+  // ---------- YouTube creator discovery ----------
+  server.registerTool(
+    'list_youtube_discovery_profiles',
+    {
+      description: 'List reusable YouTube discovery profiles and their reference games/topic facets for one project.',
+      inputSchema: { gameId: id('Game') },
+    },
+    (a) => run(() => caller.creatorDiscovery.profiles(a)),
+  )
+  server.registerTool(
+    'create_youtube_discovery_profile',
+    {
+      description:
+        'Create a project-scoped deterministic YouTube search profile. This does not start a run and never accepts an API key.',
+      inputSchema: discoveryProfileFields,
+    },
+    (a) =>
+      run(() =>
+        caller.creatorDiscovery.createProfile(a as Parameters<typeof caller.creatorDiscovery.createProfile>[0]),
+      ),
+  )
+  server.registerTool(
+    'start_youtube_discovery',
+    {
+      description:
+        'Queue a discovery run. Exact active or fresh duplicates are reused automatically. The desktop app owns the protected YouTube key and executes the queue when configured and running.',
+      inputSchema: {
+        profileId: id('YouTube discovery profile'),
+        forceNew: z
+          .boolean()
+          .optional()
+          .describe(
+            'Normally false. True bypasses only reuse of a fresh completed run, never active-run deduplication.',
+          ),
+      },
+    },
+    (a) => run(() => caller.creatorDiscovery.start({ ...a, forceNew: a.forceNew ?? false })),
+  )
+  server.registerTool(
+    'list_youtube_discovery_runs',
+    {
+      description: 'List background discovery runs and progress counters for one project.',
+      inputSchema: { gameId: id('Game'), limit: z.number().int().min(1).max(100).optional() },
+    },
+    (a) => run(() => caller.creatorDiscovery.runs({ ...a, limit: a.limit ?? 50 })),
+  )
+  server.registerTool(
+    'get_youtube_discovery_run',
+    {
+      description: 'Get one immutable discovery run artifact, including its snapshotted search inputs and progress.',
+      inputSchema: { id: id('YouTube discovery run') },
+    },
+    (a) => run(() => caller.creatorDiscovery.getRun(a)),
+  )
+  server.registerTool(
+    'control_youtube_discovery_run',
+    {
+      description: 'Pause, resume or cancel a queued/background YouTube discovery run.',
+      inputSchema: {
+        id: id('YouTube discovery run'),
+        action: z.enum(['pause', 'resume', 'cancel']),
+      },
+    },
+    ({ id, action }) =>
+      run(() =>
+        action === 'pause'
+          ? caller.creatorDiscovery.pause({ id })
+          : action === 'resume'
+            ? caller.creatorDiscovery.resume({ id })
+            : caller.creatorDiscovery.cancel({ id }),
+      ),
+  )
+  server.registerTool(
+    'list_youtube_discovery_candidates',
+    {
+      description:
+        'Inspect the staging artifact for a run: deterministic fit, matched references, video evidence and public contact provenance. Nothing is added to the live CRM until promoted.',
+      inputSchema: {
+        runId: id('YouTube discovery run'),
+        status: z.enum(['staged', 'promoted', 'dismissed']).optional(),
+        minFit: z.number().int().min(0).max(100).optional(),
+        limit: z.number().int().min(1).max(1_000).optional(),
+      },
+    },
+    (a) =>
+      run(() =>
+        caller.creatorDiscovery.candidates({
+          ...a,
+          minFit: a.minFit ?? 0,
+          limit: a.limit ?? 500,
+        }),
+      ),
+  )
+  server.registerTool(
+    'review_youtube_discovery_candidate',
+    {
+      description:
+        'Promote one staged candidate into the project CRM or dismiss it. Promotion is idempotent and preserves discovery evidence for the influencer card.',
+      inputSchema: {
+        runId: id('YouTube discovery run'),
+        candidateId: id('YouTube discovery candidate'),
+        decision: z.enum(['promote', 'dismiss']),
+      },
+    },
+    ({ decision, ...a }) =>
+      run(() => (decision === 'promote' ? caller.creatorDiscovery.promote(a) : caller.creatorDiscovery.dismiss(a))),
   )
 
   // ---------- GMass outreach automation ----------

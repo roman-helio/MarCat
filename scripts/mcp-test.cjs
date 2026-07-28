@@ -72,6 +72,30 @@ async function main() {
   const toolNames = toolDefs.map((t) => t.name)
   const games = await send('tools/call', { name: 'list_games', arguments: {} })
   const card = await send('tools/call', { name: 'get_project_card', arguments: { key: g.key } })
+  const discoveryProfileCreated = await send('tools/call', {
+    name: 'create_youtube_discovery_profile',
+    arguments: {
+      gameId: g.id,
+      name: 'MCP history discovery',
+      mode: 'topic',
+      references: [
+        { label: 'Ancient Rome', aliases: ['Roman history'] },
+        { label: 'Medieval warfare', queryTerms: ['medieval battle documentary'] },
+      ],
+      languages: ['en'],
+      maxSearchRequests: 2,
+      discoverContacts: true,
+    },
+  })
+  const discoveryProfile = JSON.parse(discoveryProfileCreated.result?.content?.[0]?.text ?? '{}')
+  const discoveryStarted = await send('tools/call', {
+    name: 'start_youtube_discovery',
+    arguments: { profileId: discoveryProfile.id },
+  })
+  const discoveryRuns = await send('tools/call', {
+    name: 'list_youtube_discovery_runs',
+    arguments: { gameId: g.id },
+  })
   await send('tools/call', {
     name: 'update_game',
     arguments: {
@@ -398,6 +422,8 @@ async function main() {
   const gmassReadText = gmassRead.result?.content?.[0]?.text ?? ''
   const festivalListText = festivalList.result?.content?.[0]?.text ?? ''
   const creatorListText = creatorList.result?.content?.[0]?.text ?? ''
+  const discoveryStartedText = discoveryStarted.result?.content?.[0]?.text ?? ''
+  const discoveryRunsText = discoveryRuns.result?.content?.[0]?.text ?? ''
   const activityTool = toolDefs.find((t) => t.name === 'create_activity')
   const creatorTool = toolDefs.find((t) => t.name === 'create_creator')
   const createTaskTool = toolDefs.find((t) => t.name === 'create_task')
@@ -413,6 +439,12 @@ async function main() {
   console.log('server version:', initialized.result?.serverInfo?.version)
   console.log('list_games sees seeded game:', (games.result?.content?.[0]?.text || '').includes('MCP Game'))
   console.log('get_project_card sees seeded game:', cardText.includes('MCP Game'))
+  console.log(
+    'YouTube discovery MCP profile/queue:',
+    discoveryProfileCreated.result?.isError !== true &&
+      discoveryStartedText.includes('"duplicate": false') &&
+      discoveryRunsText.includes('MCP history discovery'),
+  )
   console.log('official game links round-trip:', gameWithLinksText.includes('https://example.com/mcp-game'))
   console.log('create_task not error:', created.result?.isError !== true)
   console.log('focus queue includes checklist progress:', focusText.includes('Verify implementation'))
@@ -522,9 +554,23 @@ async function main() {
     'create_gmass_campaign',
     'approve_gmass_campaign',
     'sync_gmass_campaign',
+    'list_youtube_discovery_profiles',
+    'create_youtube_discovery_profile',
+    'start_youtube_discovery',
+    'list_youtube_discovery_runs',
+    'get_youtube_discovery_run',
+    'control_youtube_discovery_run',
+    'list_youtube_discovery_candidates',
+    'review_youtube_discovery_candidate',
   ]) {
     if (!toolNames.includes(name)) throw new Error(`semantic domain tool missing: ${name}`)
   }
+  if (
+    discoveryProfileCreated.result?.isError === true ||
+    !discoveryStartedText.includes('"duplicate": false') ||
+    !discoveryRunsText.includes('MCP history discovery')
+  )
+    throw new Error('YouTube discovery MCP profile/queue round-trip failed')
   if (!JSON.stringify(activityTool?.inputSchema?.properties?.platform).includes('reddit'))
     throw new Error('activity platform enum missing from MCP JSON schema')
   if (!JSON.stringify(activityTool?.inputSchema?.properties?.placement).includes('subreddit'))

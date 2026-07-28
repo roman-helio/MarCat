@@ -303,6 +303,61 @@ export const creatorDiscoveryRouter = router({
       }))
     }),
 
+  promotedEvidence: publicProcedure
+    .input(z.object({ gameId: z.string(), creatorId: z.string(), limit: z.number().int().min(1).max(10).default(5) }))
+    .query(async ({ ctx, input }) => {
+      const promoted = await ctx.db
+        .select({
+          result: creatorDiscoveryRunCandidates,
+          candidate: creatorDiscoveryCandidates,
+          run: creatorDiscoveryRuns,
+        })
+        .from(creatorDiscoveryRunCandidates)
+        .innerJoin(
+          creatorDiscoveryCandidates,
+          eq(creatorDiscoveryCandidates.id, creatorDiscoveryRunCandidates.candidateId),
+        )
+        .innerJoin(creatorDiscoveryRuns, eq(creatorDiscoveryRuns.id, creatorDiscoveryRunCandidates.runId))
+        .where(
+          and(
+            eq(creatorDiscoveryRuns.gameId, input.gameId),
+            eq(creatorDiscoveryRunCandidates.creatorId, input.creatorId),
+            eq(creatorDiscoveryRunCandidates.status, 'promoted'),
+          ),
+        )
+        .orderBy(desc(creatorDiscoveryRuns.createdAt))
+        .limit(input.limit)
+
+      return Promise.all(
+        promoted.map(async (row) => {
+          const evidence = await ctx.db
+            .select({ evidence: creatorDiscoveryEvidence, reference: creatorDiscoveryReferences })
+            .from(creatorDiscoveryEvidence)
+            .innerJoin(
+              creatorDiscoveryReferences,
+              eq(creatorDiscoveryReferences.id, creatorDiscoveryEvidence.referenceId),
+            )
+            .where(
+              and(
+                eq(creatorDiscoveryEvidence.runId, row.run.id),
+                eq(creatorDiscoveryEvidence.candidateId, row.candidate.id),
+              ),
+            )
+            .orderBy(desc(creatorDiscoveryEvidence.publishedAt))
+          return {
+            ...row,
+            matchedReferences: parseArray(row.result.matchedReferencesJson),
+            fitReasons: parseArray(row.result.fitReasonsJson),
+            evidence: evidence.map(({ evidence: item, reference }) => ({
+              ...item,
+              referenceLabel: reference.label,
+              matchedTerms: parseArray(item.matchedTermsJson),
+            })),
+          }
+        }),
+      )
+    }),
+
   promote: publicProcedure
     .input(z.object({ runId: z.string(), candidateId: z.string() }))
     .mutation(({ ctx, input }) => promoteDiscoveryCandidate(ctx.db, input.runId, input.candidateId)),

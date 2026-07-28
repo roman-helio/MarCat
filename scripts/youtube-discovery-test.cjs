@@ -163,8 +163,62 @@ async function main() {
     assert.equal(creators.length, 1)
     assert.equal(creators[0].youtubeChannelId, channelId)
     assert.equal((await caller.creators.picks({ gameId: game.id })).length, 1)
+    const promotedEvidence = await caller.creatorDiscovery.promotedEvidence({
+      gameId: game.id,
+      creatorId: promoted.creatorId,
+      limit: 5,
+    })
+    assert.equal(promotedEvidence.length, 1)
+    assert.deepEqual(promotedEvidence[0].matchedReferences, ['Alpha Game', 'Beta Quest'])
+    assert.equal(promotedEvidence[0].evidence.length, 2)
 
-    console.log('YOUTUBE DISCOVERY OK (staging + overlap + quota + request/run dedupe + explicit promotion)')
+    const aiCaller = appRouter.createCaller({
+      db: database.db,
+      secrets,
+      agent: {
+        async run() {
+          return {
+            summary: 'Queued a topic discovery search',
+            changes: [
+              {
+                op: 'create',
+                entity: 'creator_discovery_search',
+                after: {
+                  name: 'History experts',
+                  mode: 'topic',
+                  references: [
+                    { label: 'Ancient Rome', aliases: ['Roman history'] },
+                    { label: 'Medieval warfare', queryTerms: ['medieval battle documentary'] },
+                  ],
+                  languages: ['en'],
+                  maxSearchRequests: 3,
+                  discoverContacts: true,
+                },
+              },
+            ],
+            rawOutput: '{}',
+            model: 'mock',
+          }
+        },
+      },
+    })
+    const aiRun = await aiCaller.ai.run({ gameId: game.id, prompt: 'Find YouTube historians at scale' })
+    let stagedAiRun = await aiCaller.ai.getRun({ id: aiRun.id })
+    for (let index = 0; index < 100 && stagedAiRun.run.status === 'running'; index += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      stagedAiRun = await aiCaller.ai.getRun({ id: aiRun.id })
+    }
+    const applied = await aiCaller.ai.applyRun({ id: aiRun.id })
+    assert.equal(applied.applied, 1)
+    const profiles = await caller.creatorDiscovery.profiles({ gameId: game.id })
+    const historyProfile = profiles.find((item) => item?.name === 'History experts')
+    assert.ok(historyProfile)
+    assert.equal(historyProfile.mode, 'topic')
+    assert.equal(historyProfile.references.length, 2)
+    const historyRuns = await caller.creatorDiscovery.runs({ gameId: game.id, limit: 50 })
+    assert.ok(historyRuns.some((run) => run.profileId === historyProfile.id && run.status === 'queued'))
+
+    console.log('YOUTUBE DISCOVERY OK (onboarding model + staging + evidence + quota + dedupe + AI-managed run)')
   } finally {
     global.fetch = originalFetch
     database.client.close()

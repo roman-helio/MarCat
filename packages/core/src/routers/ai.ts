@@ -5,6 +5,9 @@ import {
   aiMessages,
   aiProposalChanges,
   aiRuns,
+  creatorDiscoveryProfiles,
+  creatorDiscoveryReferences,
+  creatorDiscoveryRuns,
   creatorPicks,
   creators,
   events,
@@ -32,6 +35,7 @@ import type { AgentRunResult } from '../context'
 import { knowledgeContext, retrieveKnowledge } from '../knowledge/marketing'
 import { OFFICIAL_LINK_TYPES } from '../gameSemantics'
 import { ACTIVITY_CHANNELS, ACTIVITY_PLATFORMS, ACTIVITY_TYPES } from '../activitySemantics'
+import { hashDiscoveryProfile, type DiscoveryProfileSnapshot } from '../youtubeDiscovery'
 import {
   PROJECT_CARD_INSIGHT_TITLE,
   projectCardGameId,
@@ -67,6 +71,11 @@ notes before planning or analysis. Use \`create_insight\` or \`update_insight\` 
 hypothesis results; keep dated events and correspondence in the activity journal. Every project has
 a required \`Карточка проекта\` insight backed by the canonical project card. Fill it with
 \`update_insight\` or \`update_project_card\`; it cannot be renamed or deleted.
+For high-volume YouTube research use \`list_youtube_discovery_profiles\`,
+\`create_youtube_discovery_profile\`, \`start_youtube_discovery\`, \`list_youtube_discovery_runs\`
+and \`list_youtube_discovery_candidates\`. Every run writes to a staging artifact first; promote
+candidates explicitly with \`review_youtube_discovery_candidate\`. The desktop app, never MCP,
+owns the protected YouTube API key.
 `
 
 /** Write a ready .mcp.json (+ AGENTS.md) into a project folder so an external agent can use MarCat. */
@@ -146,6 +155,24 @@ async function buildContext(db: DB, gameId: string, knowledgeQuery = ''): Promis
     .from(creatorPicks)
     .innerJoin(creators, eq(creators.id, creatorPicks.creatorId))
     .where(eq(creatorPicks.gameId, gameId))
+  const discoveryProfiles = await db
+    .select()
+    .from(creatorDiscoveryProfiles)
+    .where(eq(creatorDiscoveryProfiles.gameId, gameId))
+    .orderBy(desc(creatorDiscoveryProfiles.updatedAt))
+  const discoveryProfileIds = discoveryProfiles.map((profile) => profile.id)
+  const discoveryReferences = discoveryProfileIds.length
+    ? await db
+        .select()
+        .from(creatorDiscoveryReferences)
+        .where(inArray(creatorDiscoveryReferences.profileId, discoveryProfileIds))
+    : []
+  const discoveryRuns = await db
+    .select()
+    .from(creatorDiscoveryRuns)
+    .where(eq(creatorDiscoveryRuns.gameId, gameId))
+    .orderBy(desc(creatorDiscoveryRuns.createdAt))
+    .limit(10)
   const configuredSources = await db
     .select({
       platform: sources.platform,
@@ -258,6 +285,17 @@ async function buildContext(db: DB, gameId: string, knowledgeQuery = ''): Promis
           )
           .join('\n')}`
       : '',
+    discoveryProfiles.length
+      ? `YouTube discovery profiles (reuse profileId to start an existing deterministic search; create a new profile only for materially different inputs):\n${discoveryProfiles
+          .map((profile) => {
+            const refs = discoveryReferences
+              .filter((reference) => reference.profileId === profile.id)
+              .map((reference) => reference.label)
+            const latestRun = discoveryRuns.find((run) => run.profileId === profile.id)
+            return `- profileId=${profile.id} "${profile.name}" [${profile.mode}] references: ${refs.join(', ')}${latestRun ? `; latest run ${latestRun.id}=${latestRun.status}` : ''}`
+          })
+          .join('\n')}`
+      : 'No YouTube discovery profiles exist yet. The agent may propose a creator_discovery_search change; the protected YouTube key must be configured by the user in the app.',
     projectKey ? `Project key for MarCat task ids and DevHub lookup: ${projectKey}` : '',
     picked.length
       ? `Festivals this game is participating in (use entityId to ENRICH one after web research — fill organizer, description, applyUrl, applyDeadline, fee, steamEvent/steamFeature):\n${picked
@@ -324,6 +362,141 @@ async function ensureTag(db: DB, gameId: string, name: string): Promise<string> 
   return rows[0]!.id
 }
 
+function parseJsonStringList(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : []
+  } catch {
+    return []
+  }
+}
+
+function discoveryReferencesFromAgent(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((item) => {
+      if (typeof item === 'string') {
+        const label = item.trim()
+        return label ? { label, aliases: [], queryTerms: [label], weight: 1 } : null
+      }
+      if (!item || typeof item !== 'object') return null
+      const record = item as Record<string, unknown>
+      const label = str(record.label)
+      if (!label) return null
+      const aliases = strList(record.aliases)
+      const queryTerms = strList(record.queryTerms)
+      return {
+        label: label.slice(0, 160),
+        aliases,
+        queryTerms: queryTerms.length ? queryTerms : [label],
+        weight: Math.min(10, Math.max(0.1, num(record.weight) ?? 1)),
+      }
+    })
+    .filter((reference): reference is NonNullable<typeof reference> => !!reference)
+    .slice(0, 100)
+}
+
+async function queueAgentDiscoverySearch(db: DB, gameId: string, after: Record<string, unknown>): Promise<boolean> {
+  let profile = str(after.profileId)
+    ? (
+        await db
+          .select()
+          .from(creatorDiscoveryProfiles)
+          .where(
+            and(eq(creatorDiscoveryProfiles.id, str(after.profileId)), eq(creatorDiscoveryProfiles.gameId, gameId)),
+          )
+          .limit(1)
+      )[0]
+    : undefined
+
+  if (!profile) {
+    const name = str(after.name)
+    const references = discoveryReferencesFromAgent(after.references)
+    if (!name || !references.length) return false
+    const existing = await db.select().from(creatorDiscoveryProfiles).where(eq(creatorDiscoveryProfiles.gameId, gameId))
+    profile = existing.find((item) => item.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())
+    if (!profile) {
+      profile = (
+        await db
+          .insert(creatorDiscoveryProfiles)
+          .values({
+            gameId,
+            name: name.slice(0, 160),
+            mode: str(after.mode) === 'topic' ? 'topic' : 'games',
+            languagesJson: JSON.stringify(strList(after.languages).slice(0, 10)),
+            includeTermsJson: JSON.stringify(strList(after.includeTerms).slice(0, 100)),
+            excludeTermsJson: JSON.stringify(strList(after.excludeTerms).slice(0, 100)),
+            seedChannelsJson: JSON.stringify(strList(after.seedChannels).slice(0, 200)),
+            maxSearchRequests: Math.min(100, Math.max(1, Math.round(num(after.maxSearchRequests) ?? 10))),
+            maxChannels: Math.min(5_000, Math.max(10, Math.round(num(after.maxChannels) ?? 500))),
+            recentVideoLimit: Math.min(100, Math.max(10, Math.round(num(after.recentVideoLimit) ?? 50))),
+            discoverContacts: bool(after.discoverContacts) ?? true,
+          })
+          .returning()
+      )[0]
+      await db.insert(creatorDiscoveryReferences).values(
+        references.map((reference) => ({
+          profileId: profile!.id,
+          label: reference.label,
+          aliasesJson: JSON.stringify(reference.aliases),
+          queryTermsJson: JSON.stringify(reference.queryTerms),
+          weight: reference.weight,
+        })),
+      )
+    }
+  }
+
+  if (!profile) return false
+  const referenceRows = await db
+    .select()
+    .from(creatorDiscoveryReferences)
+    .where(eq(creatorDiscoveryReferences.profileId, profile.id))
+    .orderBy(asc(creatorDiscoveryReferences.createdAt))
+  if (!referenceRows.length) return false
+  const snapshot: DiscoveryProfileSnapshot = {
+    profileId: profile.id,
+    gameId: profile.gameId,
+    name: profile.name,
+    mode: profile.mode,
+    languages: parseJsonStringList(profile.languagesJson),
+    includeTerms: parseJsonStringList(profile.includeTermsJson),
+    excludeTerms: parseJsonStringList(profile.excludeTermsJson),
+    seedChannels: parseJsonStringList(profile.seedChannelsJson),
+    maxSearchRequests: profile.maxSearchRequests,
+    maxChannels: profile.maxChannels,
+    recentVideoLimit: profile.recentVideoLimit,
+    discoverContacts: profile.discoverContacts,
+    references: referenceRows.map((reference) => ({
+      id: reference.id,
+      label: reference.label,
+      aliases: parseJsonStringList(reference.aliasesJson),
+      queryTerms: parseJsonStringList(reference.queryTermsJson),
+      weight: reference.weight,
+    })),
+  }
+  const profileHash = hashDiscoveryProfile(snapshot)
+  const matchingRuns = await db
+    .select()
+    .from(creatorDiscoveryRuns)
+    .where(and(eq(creatorDiscoveryRuns.profileId, profile.id), eq(creatorDiscoveryRuns.profileHash, profileHash)))
+    .orderBy(desc(creatorDiscoveryRuns.createdAt))
+  const duplicate = matchingRuns.find((run) =>
+    ['queued', 'running', 'paused', 'waiting_for_quota'].includes(run.status),
+  )
+  const freshCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1_000).toISOString()
+  const fresh = matchingRuns.find(
+    (run) => run.status === 'completed' && !!run.finishedAt && run.finishedAt >= freshCutoff,
+  )
+  if (duplicate || fresh) return true
+  await db.insert(creatorDiscoveryRuns).values({
+    gameId,
+    profileId: profile.id,
+    profileHash,
+    profileSnapshotJson: JSON.stringify(snapshot),
+  })
+  return true
+}
+
 async function applyChange(db: DB, gameId: string, entity: string, op: string, after: Record<string, unknown>) {
   // Most proposals create. Existing catalogue records and journal entries may be edited by id.
   if (
@@ -351,6 +524,9 @@ async function applyChange(db: DB, gameId: string, entity: string, op: string, a
       .set({ officialLinks: JSON.stringify(officialLinks), updatedAt: new Date().toISOString() })
       .where(eq(games.id, gameId))
     return true
+  }
+  if (entity === 'creator_discovery_search' && op === 'create') {
+    return queueAgentDiscoverySearch(db, gameId, after)
   }
   if (entity === 'insight') {
     const existingId = str(after.entityId) || str(after.id)
