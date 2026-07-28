@@ -98,14 +98,28 @@ Each run is an immutable staging artifact with progress, counters, errors, video
 candidate decisions. Results never enter the production creator CRM automatically: **Add to CRM** is an
 explicit per-candidate action. Profile hashes, request hashes, stable YouTube channel IDs, and database
 unique constraints prevent accidental duplicate runs, quota calls, candidates, evidence, contacts, and
-CRM picks.
+CRM picks. After promotion, the influencer drawer shows the matched reference labels, discovery fit and
+clickable video evidence alongside the editable creator fields.
 
-Add the key under **Settings → Connectors → YouTube**. MarCat shows its exact local daily ledger for the
+The first visit presents an inline readiness guide until both prerequisites exist: a YouTube key and at
+least one project search profile. The key field writes to the same protected connector storage used by
+**Settings → Connectors → YouTube**; profiles and references stay project-scoped in Discovery. Once ready,
+the selected profile, run, fit threshold and candidate status remain persisted on the page.
+
+Create a Google Cloud project, enable YouTube Data API v3, create an API key, and restrict that key to the
+YouTube API before pasting it into MarCat. Creating and using the key is not billed by request; Google
+limits use with project quotas instead. MarCat shows its exact local daily ledger for the
 key (search requests and other data units, reset on YouTube's Pacific-Time quota day). Calls made by other
 applications in the same Google Cloud project are not observable locally, so Google Cloud Console remains
 the source for project-wide usage. A quota-paused run automatically returns to the queue after the next
 Pacific-Time reset. Cached API responses and derived discovery data expire after 30 days.
-See the official [YouTube quota guide](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits)
+External MCP agents can create profiles, queue/control runs, inspect the staging artifact and explicitly
+review candidates. The embedded MarCat agent can propose and queue the same deterministic search as a
+reviewable changeset. Neither agent path can read or set the protected API key.
+
+See the official [YouTube Data API setup guide](https://developers.google.com/youtube/v3/getting-started),
+[API-key security guide](https://cloud.google.com/docs/authentication/api-keys),
+[quota guide](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits)
 and [developer policies](https://developers.google.com/youtube/terms/developer-policies).
 
 ## Requirements
