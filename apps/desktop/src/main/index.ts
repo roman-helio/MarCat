@@ -28,7 +28,7 @@ import {
 import { eq } from 'drizzle-orm'
 import { claudeAvailable, codexAvailable, createAgentRunner } from './agent'
 import { createSecrets } from './secrets'
-import { setupFeedbackWorker, setupGmassWorker, setupSteamWatchers } from './watchers'
+import { setupFeedbackWorker, setupGmassWorker, setupSteamWatchers, setupYoutubeDiscoveryWorker } from './watchers'
 
 // Set the app name early so getPath('userData') resolves to %APPDATA%/MarCat.
 app.setName('MarCat')
@@ -563,6 +563,7 @@ if (!app.requestSingleInstanceLock()) {
       }
       setupSteamWatchers(database, secrets)
       setupGmassWorker(database, secrets)
+      setupYoutubeDiscoveryWorker(database, secrets)
       setupFeedbackWorker(database, secrets)
       const syncFinancials = () => {
         const key = secrets?.getApiKey('steamfinancial')

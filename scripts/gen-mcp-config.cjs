@@ -68,6 +68,10 @@ files that can be edited in Obsidian, Git or an editor; use \`get_workspace_stat
    or bulk upsert with \`import_festivals\`. Use ISO dates (\`YYYY-MM-DD\`), \`endDate\` for ranges,
    \`applyDeadline\` for submission deadlines, and game-specific participation via
    \`pick_festival\` + \`set_festival_status\`.
+8. Creator outreach: use \`log_touch\` for one message and \`log_touches_bulk\` for several. Give every
+   touch a stable unique \`requestId\` and reuse it when retrying. Never fan out creator writes with
+   \`Promise.all\`. An MCP error still contains text content, so success means \`isError !== true\`, not merely
+   that \`content\` exists. Treat the returned \`pick.pipelineStatus\` as the verified post-write state.
 
 ## Concepts
 - A **game** is a workspace. Its \`key\` is the shared task/DevHub prefix. Game \`platforms\` are release/store
@@ -82,6 +86,8 @@ files that can be edited in Obsidian, Git or an editor; use \`get_workspace_stat
   \`placement=r/CityBuilders\`. Never guess metrics; null means unknown and 0 means a known zero.
 - \`direction\` + \`channel\` are only for correspondence. A public social post is not outbound email.
   \`statusAfter\` is only an atomic festival or creator pipeline transition, never a task/project status.
+- Creator touches and their pipeline transition are atomic. Reusing a touch \`requestId\` returns the original
+  record instead of duplicating it, and a touch never moves an already-later creator stage backwards.
 - Preserve provenance: MCP-created activities and creator picks are recorded as AI-created. Public/business
   creator contacts only; honor \`doNotContact\`.
 - A **tag** is the single grouping entity. A tag with a \`targetDate\` is a **deadline**

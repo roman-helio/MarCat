@@ -4,6 +4,8 @@
 - Start the coordinator only after migrations, and stop it during process shutdown.
 - All managed writes must go through the shared tRPC routers. SQLite triggers durably enqueue Markdown exports,
   including nested checklist, dependency and tag-link changes; do not add direct filesystem writes to MCP tools.
+- Keep multi-record creator outreach inside the atomic `creators.logTouchesBulk` router. Do not parallelize
+  individual SQLite writes; require idempotency keys and return the verified resulting creator pick.
 - A configured Markdown workspace is user-owned data. External deletion becomes a resolvable `missing` issue.
   MarCat deletion moves the last complete document to `Quarantine/Deleted`.
 - Workspace paths returned by tools must come from the coordinator's contained-path validation.

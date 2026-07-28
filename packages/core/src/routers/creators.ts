@@ -47,7 +47,9 @@ const fields = {
   handle: z.string().nullish(),
   kind: z.string().nullish(),
   primaryPlatform: z.string().nullish(),
+  youtubeChannelId: z.string().nullish(),
   channelKey: z.string().nullish(),
+  thumbnailUrl: z.string().url().nullish(),
   channelsJson: z.string().nullish(),
   audience: z.number().int().nullish(),
   avgViews: z.number().int().nullish(),
@@ -68,6 +70,8 @@ const fields = {
   doNotContact: z.boolean().nullish(),
   notes: z.string().nullish(),
   description: z.string().nullish(),
+  dataRefreshedAt: z.string().nullish(),
+  dataExpiresAt: z.string().nullish(),
 }
 const item = z.object(fields)
 const patch = z.object(fields).partial().extend({ id: z.string() })
@@ -98,7 +102,7 @@ type CreatorPickState = {
   agreedCostUsd: number | null
   keysSentJson: string | null
   pinned: boolean
-  addedBy: 'manual' | 'ai'
+  addedBy: typeof creatorPicks.$inferSelect.addedBy
 }
 
 async function creatorPickContext(
@@ -328,7 +332,7 @@ export const creatorsRouter = router({
       z.object({
         gameId: z.string(),
         creatorId: z.string(),
-        addedBy: z.enum(['manual', 'ai']).optional(),
+        addedBy: z.enum(['manual', 'ai', 'scrape']).optional(),
         keysSentJson: z.string().nullish(),
       }),
     )
@@ -463,11 +467,11 @@ export const creatorsRouter = router({
       .then((rows) => rows.map((row) => ({ ...row, summary: row.title, body: row.description }))),
   ),
 
-  logTouch: publicProcedure.input(creatorTouchInput).mutation(({ ctx, input }) =>
-    withSqliteBusyRetry(() =>
-      ctx.db.transaction((tx) => performLogTouch(tx as unknown as DB, input)),
+  logTouch: publicProcedure
+    .input(creatorTouchInput)
+    .mutation(({ ctx, input }) =>
+      withSqliteBusyRetry(() => ctx.db.transaction((tx) => performLogTouch(tx as unknown as DB, input))),
     ),
-  ),
 
   logTouchesBulk: publicProcedure
     .input(

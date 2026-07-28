@@ -1490,4 +1490,58 @@ async function main(): Promise<void> {
         'Explicitly approve and queue a frozen GMass campaign. The desktop worker owns the encrypted API key and dispatches queued work when MarCat is running.',
       inputSchema: {
         id: id('GMass campaign'),
-        confirm: z.literal(true).describe('Must be true after th
+        confirm: z.literal(true).describe('Must be true after the exact recipient count and messages were reviewed.'),
+        expectedRecipientCount: z.number().int().positive(),
+        contentHash: z.string().min(16).describe('Hash returned by create_gmass_campaign.'),
+      },
+    },
+    (a) => run(() => caller.gmass.approve(a)),
+  )
+  server.registerTool(
+    'list_gmass_campaigns',
+    {
+      description: 'List GMass outreach batches with aggregate per-recipient delivery states.',
+      inputSchema: { gameId: z.string().optional(), limit: z.number().int().min(1).max(100).optional() },
+    },
+    (a) => run(() => caller.gmass.list(a)),
+  )
+  server.registerTool(
+    'get_gmass_campaign',
+    {
+      description: 'Get one GMass batch with every frozen recipient, exact message and delivery state.',
+      inputSchema: { id: id('GMass campaign') },
+    },
+    (a) => run(() => caller.gmass.get(a)),
+  )
+  server.registerTool(
+    'sync_gmass_campaign',
+    {
+      description:
+        'Request delivery/reply/bounce synchronization. The desktop worker performs it with the encrypted GMass key.',
+      inputSchema: { id: id('GMass campaign') },
+    },
+    (a) => run(() => caller.gmass.requestSync(a)),
+  )
+  server.registerTool(
+    'retry_gmass_campaign',
+    {
+      description: 'Retry failed recipients in a GMass batch. Already successful recipients are not recreated.',
+      inputSchema: { id: id('GMass campaign') },
+    },
+    (a) => run(() => caller.gmass.retry(a)),
+  )
+
+  const shutdown = () => {
+    void workspace.stop().finally(() => client.close())
+  }
+  process.once('SIGINT', shutdown)
+  process.once('SIGTERM', shutdown)
+  process.once('beforeExit', shutdown)
+  await server.connect(new StdioServerTransport())
+  console.error(`[marcat-mcp] ready (db: ${path})`)
+}
+
+main().catch((e) => {
+  console.error('[marcat-mcp] fatal:', e)
+  process.exit(1)
+})

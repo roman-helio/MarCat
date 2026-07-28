@@ -39,6 +39,16 @@ export { OFFICIAL_LINK_TYPES, type OfficialLink, type OfficialLinkType } from '.
 export * from './workspace'
 export { processGmassQueue, GMASS_ADDRESS_CATEGORIES, type GmassAddressCategory } from './gmass'
 export {
+  processYouTubeDiscoveryQueue,
+  expireYoutubeDiscoveryCache,
+  YOUTUBE_DATA_DAILY_LIMIT,
+  YOUTUBE_SEARCH_DAILY_LIMIT,
+  type DiscoveryMode,
+  type DiscoveryProfileSnapshot,
+  type DiscoveryReferenceSnapshot,
+  type DiscoveryRunStatus,
+} from './youtubeDiscovery'
+export {
   REVIEW_PLATFORMS,
   isReviewPlatform,
   parseReviewPageHtml,

@@ -27,6 +27,7 @@ import { compareListValues, SortableHeader, StatusSelect, type SortDirection } f
 import { TaskCard } from '@/components/tasks/TaskCard'
 import { TaskDrawer } from '@/components/tasks/TaskDrawer'
 import { GmassCampaignDialog } from '@/components/creators/GmassCampaignDialog'
+import { CreatorDiscovery } from '@/components/creators/CreatorDiscovery'
 
 type Creator = Awaited<ReturnType<typeof trpc.creators.list.query>>[number]
 type Contact = { type?: string; value?: string; sourceUrl?: string; verified?: boolean; gated?: boolean }
@@ -97,6 +98,10 @@ function listFromText(value: string): string[] {
 export function Creators() {
   const t = useT()
   const { gameId } = useParams<{ gameId?: string }>()
+  const sectionKey = `creators:${gameId ?? 'global'}`
+  const sectionState = useUi((state) => state.sectionViewStates?.[sectionKey] ?? {})
+  const setSectionState = useUi((state) => state.setSectionViewState)
+  const area = gameId && sectionState.area === 'discovery' ? 'discovery' : 'crm'
   const [searchParams, setSearchParams] = useSearchParams()
   const setCurrentGame = useUi((s) => s.setCurrentGame)
   const react = useCompanion((s) => s.react)
@@ -287,11 +292,42 @@ export function Creators() {
     navigate(`/g/${gameId}/ai`)
   }
 
+  if (gameId && area === 'discovery') {
+    return (
+      <div className="enter mx-auto max-w-6xl space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h1 className="t-title text-balance">{t('nav.creators')}</h1>
+          <Segmented
+            ariaLabel={t('creators.area')}
+            value={area}
+            onChange={(value) => setSectionState(sectionKey, { area: value })}
+            items={[
+              { value: 'crm', label: t('creators.area.crm') },
+              { value: 'discovery', label: t('creators.area.discovery') },
+            ]}
+          />
+        </div>
+        <CreatorDiscovery gameId={gameId} />
+      </div>
+    )
+  }
+
   return (
     <div className="enter mx-auto max-w-6xl space-y-5">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="t-title">{gameId ? t('nav.creators') : t('creators.global')}</h1>
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center justify-end gap-1.5">
+          {gameId && (
+            <Segmented
+              ariaLabel={t('creators.area')}
+              value={area}
+              onChange={(value) => setSectionState(sectionKey, { area: value })}
+              items={[
+                { value: 'crm', label: t('creators.area.crm') },
+                { value: 'discovery', label: t('creators.area.discovery') },
+              ]}
+            />
+          )}
           {gameId && (
             <Segmented
               ariaLabel={t('creators.view')}
@@ -692,6 +728,8 @@ function CreatorDrawer({
     handle: c.handle ?? '',
     primaryPlatform: c.primaryPlatform ?? '',
     audience: c.audience == null ? '' : String(c.audience),
+    avgViews: c.avgViews == null ? '' : String(c.avgViews),
+    cadencePerMonth: c.cadencePerMonth == null ? '' : String(c.cadencePerMonth),
     language: c.language ?? '',
     region: c.region ?? '',
     costUsd: c.costUsd == null ? '' : String(c.costUsd),
@@ -711,6 +749,8 @@ function CreatorDrawer({
         handle: s.handle.trim() || null,
         primaryPlatform: s.primaryPlatform.trim() || null,
         audience: s.audience.trim() === '' ? null : Number(s.audience) || 0,
+        avgViews: s.avgViews.trim() === '' ? null : Number(s.avgViews) || 0,
+        cadencePerMonth: s.cadencePerMonth.trim() === '' ? null : Number(s.cadencePerMonth) || 0,
         language: s.language.trim() || null,
         region: s.region.trim() || null,
         costUsd: s.costUsd.trim() === '' ? null : Number(s.costUsd) || 0,
@@ -754,12 +794,37 @@ function CreatorDrawer({
       meta={fit && <span className={cn('nums text-xs font-medium', fitColor(fit.score))}>{fit.score}</span>}
       onClose={onClose}
     >
-      <input
-        value={s.name}
-        onChange={(e) => setS({ ...s, name: e.target.value })}
-        aria-label={t('creators.name')}
-        className={cn(fieldCls, 'text-base font-medium')}
-      />
+      <div className="flex items-center gap-3">
+        {c.thumbnailUrl && (
+          <img
+            src={c.thumbnailUrl}
+            alt=""
+            className="h-12 w-12 shrink-0 rounded-[var(--radius)] object-cover outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10"
+          />
+        )}
+        <input
+          value={s.name}
+          onChange={(e) => setS({ ...s, name: e.target.value })}
+          aria-label={t('creators.name')}
+          className={cn(fieldCls, 'min-w-0 flex-1 text-base font-medium')}
+        />
+      </div>
+
+      {c.youtubeChannelId && (
+        <div className="flex flex-wrap gap-1.5 text-[11px] text-muted">
+          <span className="rounded bg-surface-2 px-2 py-1 font-mono">{c.youtubeChannelId}</span>
+          {c.dataRefreshedAt && (
+            <span className="rounded bg-surface-2 px-2 py-1 tabular-nums">
+              {t('creators.dataFresh')}: {new Date(c.dataRefreshedAt).toLocaleDateString()}
+            </span>
+          )}
+          {c.dataExpiresAt && (
+            <span className="rounded bg-warning/10 px-2 py-1 text-warning tabular-nums">
+              {t('creators.dataExpires')}: {new Date(c.dataExpiresAt).toLocaleDateString()}
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Fit reasons (per-game). */}
       {gameId && fit && (
@@ -838,6 +903,25 @@ function CreatorDrawer({
             min={0}
             value={s.audience}
             onChange={(e) => setS({ ...s, audience: e.target.value })}
+            className={fieldCls}
+          />
+        </Field>
+        <Field label={t('creators.avgViews')}>
+          <input
+            type="number"
+            min={0}
+            value={s.avgViews}
+            onChange={(e) => setS({ ...s, avgViews: e.target.value })}
+            className={fieldCls}
+          />
+        </Field>
+        <Field label={t('creators.cadence')}>
+          <input
+            type="number"
+            min={0}
+            step="0.1"
+            value={s.cadencePerMonth}
+            onChange={(e) => setS({ ...s, cadencePerMonth: e.target.value })}
             className={fieldCls}
           />
         </Field>

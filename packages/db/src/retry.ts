@@ -19,7 +19,9 @@ export function isSqliteBusy(error: unknown): boolean {
   return errorChain(error).some((entry) => {
     const code = typeof entry === 'object' && entry && 'code' in entry ? String(entry.code) : ''
     const message = entry instanceof Error ? entry.message : String(entry)
-    return code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED' || /SQLITE_(?:BUSY|LOCKED)|database is locked/i.test(message)
+    return (
+      code === 'SQLITE_BUSY' || code === 'SQLITE_LOCKED' || /SQLITE_(?:BUSY|LOCKED)|database is locked/i.test(message)
+    )
   })
 }
 

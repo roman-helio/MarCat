@@ -21,6 +21,7 @@ import { workspaceRouter } from './workspace'
 import { gmassRouter } from './gmass'
 import { commentsRouter } from './comments'
 import { searchRouter } from './search'
+import { creatorDiscoveryRouter } from './creatorDiscovery'
 
 export const appRouter = router({
   health: publicProcedure.query(() => ({ ok: true as const, app: 'MarCat' })),
@@ -46,6 +47,7 @@ export const appRouter = router({
   gmass: gmassRouter,
   comments: commentsRouter,
   search: searchRouter,
+  creatorDiscovery: creatorDiscoveryRouter,
 })
 
 export type AppRouter = typeof appRouter

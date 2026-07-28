@@ -82,6 +82,31 @@ For task lookup, use `search_tasks`: filtering happens in SQLite and returns a c
 Call `get_task` only for the selected full record. `list_tasks` remains backward compatible, while calls that
 provide `search`, status/priority filters, pagination or `detail` use the same compact search path.
 
+## YouTube creator discovery
+
+Inside a game, **Influencers → Discovery** runs a durable, resumable YouTube search without using an
+LLM. A reusable search profile can contain competitor/reference games (with aliases and search terms)
+or topic facets such as history periods, required phrases, exclusions, languages, and seed channel IDs.
+
+The pipeline uses expensive search calls only to seed channels, scans each channel's recent uploads,
+and matches every video locally against all references. This produces an explainable fit score based on
+reference coverage, matching videos, recency, reach, and available public contact evidence. Public emails
+and links are extracted from channel/video descriptions; CAPTCHA-gated addresses on YouTube's About page
+are deliberately not bypassed.
+
+Each run is an immutable staging artifact with progress, counters, errors, video evidence, contacts, and
+candidate decisions. Results never enter the production creator CRM automatically: **Add to CRM** is an
+explicit per-candidate action. Profile hashes, request hashes, stable YouTube channel IDs, and database
+unique constraints prevent accidental duplicate runs, quota calls, candidates, evidence, contacts, and
+CRM picks.
+
+Add the key under **Settings → Connectors → YouTube**. MarCat shows its exact local daily ledger for the
+key (search requests and other data units, reset on YouTube's Pacific-Time quota day). Calls made by other
+applications in the same Google Cloud project are not observable locally, so Google Cloud Console remains
+the source for project-wide usage. Cached API responses and derived discovery data expire after 30 days.
+See the official [YouTube quota guide](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits)
+and [developer policies](https://developers.google.com/youtube/terms/developer-policies).
+
 ## Requirements
 
 - Node.js 22 or newer

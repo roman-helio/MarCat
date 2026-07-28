@@ -271,6 +271,44 @@ async function main() {
     name: 'update_creator_keys',
     arguments: { gameId: g.id, creatorId, keysSent: ['DDDDD-EEEEE-FFFFF'] },
   })
+  const outreachBatch = await send('tools/call', {
+    name: 'log_touches_bulk',
+    arguments: {
+      gameId: g.id,
+      items: [
+        {
+          creatorId,
+          direction: 'outbound',
+          channel: 'email',
+          occurredAt: '2026-07-13',
+          summary: 'Sent verified MCP outreach',
+          body: 'Complete outreach body.',
+          statusAfter: 'contacted',
+          requestId: 'mcp-test-outreach-batch',
+        },
+      ],
+    },
+  })
+  const outreachReplay = await send('tools/call', {
+    name: 'log_touches_bulk',
+    arguments: {
+      gameId: g.id,
+      items: [
+        {
+          creatorId,
+          direction: 'outbound',
+          channel: 'email',
+          occurredAt: '2026-07-13',
+          summary: 'Sent verified MCP outreach',
+          body: 'Complete outreach body.',
+          statusAfter: 'contacted',
+          requestId: 'mcp-test-outreach-batch',
+        },
+      ],
+    },
+  })
+  const outreachBatchJson = JSON.parse(outreachBatch.result?.content?.[0]?.text ?? '{}')
+  const outreachReplayJson = JSON.parse(outreachReplay.result?.content?.[0]?.text ?? '{}')
   const creatorPicks = await send('tools/call', {
     name: 'list_creator_picks',
     arguments: { gameId: g.id },
@@ -476,6 +514,7 @@ async function main() {
     'create_source',
     'get_creator',
     'update_creator',
+    'log_touches_bulk',
     'set_checklist_item',
     'get_next_actions',
     'complete_task',
@@ -494,6 +533,12 @@ async function main() {
     throw new Error('creator topics must be a structured array, not encoded JSON')
   if (creatorTool?.inputSchema?.properties?.playedGames?.type !== 'array')
     throw new Error('creator playedGames must be a structured array, not encoded JSON')
+  if (
+    outreachBatchJson.results?.[0]?.pick?.pipelineStatus !== 'contacted' ||
+    outreachReplayJson.results?.[0]?.replayed !== true ||
+    outreachReplayJson.results?.[0]?.id !== outreachBatchJson.results?.[0]?.id
+  )
+    throw new Error('idempotent creator outreach batch failed')
   if (createTaskTool?.inputSchema?.properties?.recurrence?.type !== 'object')
     throw new Error('create_task recurrence input is missing from MCP JSON schema')
   if (!JSON.stringify(updateTaskTool?.inputSchema?.properties?.recurrence).includes('null'))

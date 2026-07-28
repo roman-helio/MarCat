@@ -713,8 +713,11 @@ export const creators = sqliteTable(
     handle: text('handle'),
     kind: text('kind').notNull().default('youtuber'), // youtuber|streamer|tiktoker|journalist|podcaster|steam_curator|other
     primaryPlatform: text('primary_platform'),
+    /** Stable YouTube channel id (UC...), independent from handle/vanity URL changes. */
+    youtubeChannelId: text('youtube_channel_id'),
     /** Canonical normalized URL of the primary channel — dedup key (UNIQUE). */
     channelKey: text('channel_key'),
+    thumbnailUrl: text('thumbnail_url'),
     /** [{platform,url,handle,subscribers,avgViews,lastPostAt,postsPerMonth}] — source of truth for metrics. */
     channelsJson: text('channels_json'),
     /** Top-level aggregates DERIVED from channels_json (recomputed on refresh). */
@@ -739,13 +742,19 @@ export const creators = sqliteTable(
     doNotContact: integer('do_not_contact', { mode: 'boolean' }).notNull().default(false),
     notes: text('notes'),
     description: text('description'),
+    /** YouTube API-derived fields must be refreshed or removed within the policy window. */
+    dataRefreshedAt: text('data_refreshed_at'),
+    dataExpiresAt: text('data_expires_at'),
     source: text('source', { enum: ['manual', 'ai', 'import', 'scrape'] })
       .notNull()
       .default('manual'),
     createdAt: text('created_at').notNull().$defaultFn(nowIso),
     updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
   },
-  (t) => ({ channelKeyUniq: uniqueIndex('creators_channel_key').on(t.channelKey) }),
+  (t) => ({
+    channelKeyUniq: uniqueIndex('creators_channel_key').on(t.channelKey),
+    youtubeChannelUniq: uniqueIndex('creators_youtube_channel_id').on(t.youtubeChannelId),
+  }),
 )
 
 /** A game "picks" a creator into its outreach pipeline. */
@@ -766,13 +775,254 @@ export const creatorPicks = sqliteTable(
     agreedCostUsd: integer('agreed_cost_usd'),
     /** JSON array of game/product keys sent for THIS game's outreach. */
     keysSentJson: text('keys_sent_json'),
-    addedBy: text('added_by', { enum: ['manual', 'ai'] })
+    addedBy: text('added_by', { enum: ['manual', 'ai', 'scrape'] })
       .notNull()
       .default('manual'),
     pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
     createdAt: text('created_at').notNull().$defaultFn(nowIso),
   },
   (t) => ({ uniq: uniqueIndex('creator_picks_game_creator').on(t.gameId, t.creatorId) }),
+)
+
+/* ----------------------- YouTube creator discovery staging ----------------------- */
+
+/** Reusable, project-scoped search configuration. References are normalized below. */
+export const creatorDiscoveryProfiles = sqliteTable(
+  'creator_discovery_profiles',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    gameId: text('game_id')
+      .notNull()
+      .references(() => games.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    mode: text('mode', { enum: ['games', 'topic'] })
+      .notNull()
+      .default('games'),
+    languagesJson: text('languages_json').notNull().default('[]'),
+    includeTermsJson: text('include_terms_json').notNull().default('[]'),
+    excludeTermsJson: text('exclude_terms_json').notNull().default('[]'),
+    seedChannelsJson: text('seed_channels_json').notNull().default('[]'),
+    maxSearchRequests: integer('max_search_requests').notNull().default(10),
+    maxChannels: integer('max_channels').notNull().default(500),
+    recentVideoLimit: integer('recent_video_limit').notNull().default(50),
+    discoverContacts: integer('discover_contacts', { mode: 'boolean' }).notNull().default(true),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({ byGame: index('creator_discovery_profiles_game').on(t.gameId, t.updatedAt) }),
+)
+
+/** A competitor/reference game or a topic facet with aliases used by the local matcher. */
+export const creatorDiscoveryReferences = sqliteTable(
+  'creator_discovery_references',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    profileId: text('profile_id')
+      .notNull()
+      .references(() => creatorDiscoveryProfiles.id, { onDelete: 'cascade' }),
+    label: text('label').notNull(),
+    aliasesJson: text('aliases_json').notNull().default('[]'),
+    queryTermsJson: text('query_terms_json').notNull().default('[]'),
+    weight: real('weight').notNull().default(1),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({ byProfile: index('creator_discovery_references_profile').on(t.profileId) }),
+)
+
+/** Immutable execution artifact. Profile inputs are snapshotted so old results remain explainable. */
+export const creatorDiscoveryRuns = sqliteTable(
+  'creator_discovery_runs',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    gameId: text('game_id')
+      .notNull()
+      .references(() => games.id, { onDelete: 'cascade' }),
+    profileId: text('profile_id')
+      .notNull()
+      .references(() => creatorDiscoveryProfiles.id, { onDelete: 'cascade' }),
+    profileHash: text('profile_hash').notNull(),
+    profileSnapshotJson: text('profile_snapshot_json').notNull(),
+    status: text('status', {
+      enum: ['queued', 'running', 'paused', 'waiting_for_quota', 'partial', 'completed', 'failed', 'cancelled'],
+    })
+      .notNull()
+      .default('queued'),
+    phase: text('phase').notNull().default('queued'),
+    searchRequestsUsed: integer('search_requests_used').notNull().default(0),
+    dataUnitsUsed: integer('data_units_used').notNull().default(0),
+    channelsFound: integer('channels_found').notNull().default(0),
+    channelsScanned: integer('channels_scanned').notNull().default(0),
+    videosScanned: integer('videos_scanned').notNull().default(0),
+    candidatesStaged: integer('candidates_staged').notNull().default(0),
+    contactsFound: integer('contacts_found').notNull().default(0),
+    error: text('error'),
+    heartbeatAt: text('heartbeat_at'),
+    startedAt: text('started_at'),
+    finishedAt: text('finished_at'),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    byGame: index('creator_discovery_runs_game').on(t.gameId, t.createdAt),
+    byProfileHash: index('creator_discovery_runs_profile_hash').on(t.profileId, t.profileHash, t.createdAt),
+    byStatus: index('creator_discovery_runs_status').on(t.status, t.createdAt),
+  }),
+)
+
+/** Global discovered YouTube channel facts, separate from project-specific fit. */
+export const creatorDiscoveryCandidates = sqliteTable(
+  'creator_discovery_candidates',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    platform: text('platform').notNull().default('youtube'),
+    externalId: text('external_id').notNull(),
+    name: text('name').notNull(),
+    handle: text('handle'),
+    channelUrl: text('channel_url').notNull(),
+    thumbnailUrl: text('thumbnail_url'),
+    description: text('description'),
+    country: text('country'),
+    defaultLanguage: text('default_language'),
+    subscriberCount: integer('subscriber_count'),
+    totalViewCount: integer('total_view_count'),
+    videoCount: integer('video_count'),
+    avgViews: integer('avg_views'),
+    cadencePerMonth: real('cadence_per_month'),
+    latestVideoAt: text('latest_video_at'),
+    uploadsPlaylistId: text('uploads_playlist_id'),
+    fetchedAt: text('fetched_at').notNull().$defaultFn(nowIso),
+    expiresAt: text('expires_at').notNull(),
+  },
+  (t) => ({
+    externalUniq: uniqueIndex('creator_discovery_candidates_platform_external').on(t.platform, t.externalId),
+    byExpiry: index('creator_discovery_candidates_expiry').on(t.expiresAt),
+  }),
+)
+
+/** Per-run fit/result state. Promotion to the production CRM is always explicit. */
+export const creatorDiscoveryRunCandidates = sqliteTable(
+  'creator_discovery_run_candidates',
+  {
+    runId: text('run_id')
+      .notNull()
+      .references(() => creatorDiscoveryRuns.id, { onDelete: 'cascade' }),
+    candidateId: text('candidate_id')
+      .notNull()
+      .references(() => creatorDiscoveryCandidates.id, { onDelete: 'cascade' }),
+    fitScore: integer('fit_score').notNull(),
+    matchedReferenceCount: integer('matched_reference_count').notNull().default(0),
+    matchedReferencesJson: text('matched_references_json').notNull().default('[]'),
+    matchedVideoCount: integer('matched_video_count').notNull().default(0),
+    fitReasonsJson: text('fit_reasons_json').notNull().default('[]'),
+    status: text('status', { enum: ['staged', 'promoted', 'dismissed'] })
+      .notNull()
+      .default('staged'),
+    creatorId: text('creator_id').references(() => creators.id, { onDelete: 'set null' }),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    uniq: uniqueIndex('creator_discovery_run_candidates_unique').on(t.runId, t.candidateId),
+    byRunScore: index('creator_discovery_run_candidates_score').on(t.runId, t.fitScore),
+  }),
+)
+
+/** Video-level explanation for every matched reference. */
+export const creatorDiscoveryEvidence = sqliteTable(
+  'creator_discovery_evidence',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    runId: text('run_id')
+      .notNull()
+      .references(() => creatorDiscoveryRuns.id, { onDelete: 'cascade' }),
+    candidateId: text('candidate_id')
+      .notNull()
+      .references(() => creatorDiscoveryCandidates.id, { onDelete: 'cascade' }),
+    referenceId: text('reference_id')
+      .notNull()
+      .references(() => creatorDiscoveryReferences.id, { onDelete: 'cascade' }),
+    videoId: text('video_id').notNull(),
+    videoTitle: text('video_title').notNull(),
+    videoUrl: text('video_url').notNull(),
+    publishedAt: text('published_at'),
+    viewCount: integer('view_count'),
+    matchedTermsJson: text('matched_terms_json').notNull().default('[]'),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    uniq: uniqueIndex('creator_discovery_evidence_unique').on(t.runId, t.candidateId, t.referenceId, t.videoId),
+    byRunCandidate: index('creator_discovery_evidence_run_candidate').on(t.runId, t.candidateId),
+  }),
+)
+
+/** Public contact evidence only; every value retains provenance and confidence. */
+export const creatorDiscoveryContacts = sqliteTable(
+  'creator_discovery_contacts',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    runId: text('run_id')
+      .notNull()
+      .references(() => creatorDiscoveryRuns.id, { onDelete: 'cascade' }),
+    candidateId: text('candidate_id')
+      .notNull()
+      .references(() => creatorDiscoveryCandidates.id, { onDelete: 'cascade' }),
+    type: text('type', { enum: ['business_email', 'website', 'form'] }).notNull(),
+    value: text('value').notNull(),
+    normalizedValue: text('normalized_value').notNull(),
+    sourceUrl: text('source_url').notNull(),
+    confidence: real('confidence').notNull().default(0.8),
+    gated: integer('gated', { mode: 'boolean' }).notNull().default(false),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    uniq: uniqueIndex('creator_discovery_contacts_unique').on(t.runId, t.candidateId, t.type, t.normalizedValue),
+    byCandidate: index('creator_discovery_contacts_candidate').on(t.candidateId),
+  }),
+)
+
+/** Durable request cache/idempotency ledger. It never stores the API key itself. */
+export const youtubeApiRequests = sqliteTable(
+  'youtube_api_requests',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    lastRunId: text('last_run_id').references(() => creatorDiscoveryRuns.id, { onDelete: 'set null' }),
+    keyFingerprint: text('key_fingerprint').notNull(),
+    endpoint: text('endpoint').notNull(),
+    requestHash: text('request_hash').notNull(),
+    status: text('status', { enum: ['planned', 'running', 'succeeded', 'failed', 'uncertain'] })
+      .notNull()
+      .default('planned'),
+    quotaBucket: text('quota_bucket', { enum: ['search', 'data'] }).notNull(),
+    quotaCost: integer('quota_cost').notNull(),
+    quotaDate: text('quota_date').notNull(),
+    responseJson: text('response_json'),
+    cacheExpiresAt: text('cache_expires_at'),
+    error: text('error'),
+    reservedAt: text('reserved_at'),
+    requestedAt: text('requested_at'),
+    completedAt: text('completed_at'),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    uniq: uniqueIndex('youtube_api_requests_key_hash').on(t.keyFingerprint, t.requestHash),
+    byRun: index('youtube_api_requests_run').on(t.lastRunId, t.createdAt),
+    byStatus: index('youtube_api_requests_status').on(t.status, t.updatedAt),
+  }),
+)
+
+/** Local quota reservation ledger by key fingerprint and YouTube quota day (Pacific Time). */
+export const youtubeQuotaUsage = sqliteTable(
+  'youtube_quota_usage',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    keyFingerprint: text('key_fingerprint').notNull(),
+    quotaDate: text('quota_date').notNull(),
+    bucket: text('bucket', { enum: ['search', 'data'] }).notNull(),
+    used: integer('used').notNull().default(0),
+    limit: integer('limit').notNull(),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({ uniq: uniqueIndex('youtube_quota_usage_unique').on(t.keyFingerprint, t.quotaDate, t.bucket) }),
 )
 
 /** A logged touch in the correspondence with a creator (the CRM thread). */
@@ -960,6 +1210,15 @@ export type IndustryEvent = typeof industryEvents.$inferSelect
 export type Creator = typeof creators.$inferSelect
 export type NewCreator = typeof creators.$inferInsert
 export type CreatorPick = typeof creatorPicks.$inferSelect
+export type CreatorDiscoveryProfile = typeof creatorDiscoveryProfiles.$inferSelect
+export type CreatorDiscoveryReference = typeof creatorDiscoveryReferences.$inferSelect
+export type CreatorDiscoveryRun = typeof creatorDiscoveryRuns.$inferSelect
+export type CreatorDiscoveryCandidate = typeof creatorDiscoveryCandidates.$inferSelect
+export type CreatorDiscoveryRunCandidate = typeof creatorDiscoveryRunCandidates.$inferSelect
+export type CreatorDiscoveryEvidence = typeof creatorDiscoveryEvidence.$inferSelect
+export type CreatorDiscoveryContact = typeof creatorDiscoveryContacts.$inferSelect
+export type YoutubeApiRequest = typeof youtubeApiRequests.$inferSelect
+export type YoutubeQuotaUsage = typeof youtubeQuotaUsage.$inferSelect
 export type CreatorTouch = typeof creatorTouches.$inferSelect
 export type OutreachTemplate = typeof outreachTemplates.$inferSelect
 export type GmassCampaign = typeof gmassCampaigns.$inferSelect

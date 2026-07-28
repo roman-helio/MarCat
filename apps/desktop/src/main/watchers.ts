@@ -1,5 +1,12 @@
 import fs from 'node:fs'
-import { appRouter, isReviewPlatform, processGmassQueue, type SecretsStore } from '@marcat/core'
+import {
+  appRouter,
+  expireYoutubeDiscoveryCache,
+  isReviewPlatform,
+  processGmassQueue,
+  processYouTubeDiscoveryQueue,
+  type SecretsStore,
+} from '@marcat/core'
 import type { DB } from '@marcat/db'
 
 /**
@@ -60,6 +67,16 @@ export function setupGmassWorker(db: DB, secrets?: SecretsStore): void {
   const run = () => void processGmassQueue(db, secrets).catch(() => {})
   run()
   setInterval(run, 30_000)
+}
+
+/** Run durable creator-discovery jobs while MarCat is open or minimized. */
+export function setupYoutubeDiscoveryWorker(db: DB, secrets?: SecretsStore): void {
+  const run = () => void processYouTubeDiscoveryQueue(db, secrets).catch(() => {})
+  const expire = () => void expireYoutubeDiscoveryCache(db).catch(() => {})
+  run()
+  expire()
+  setInterval(run, 5_000)
+  setInterval(expire, 60 * 60 * 1_000)
 }
 
 /** Refresh public review/comment feeds while MarCat is open. */
