@@ -103,7 +103,8 @@ CRM picks.
 Add the key under **Settings → Connectors → YouTube**. MarCat shows its exact local daily ledger for the
 key (search requests and other data units, reset on YouTube's Pacific-Time quota day). Calls made by other
 applications in the same Google Cloud project are not observable locally, so Google Cloud Console remains
-the source for project-wide usage. Cached API responses and derived discovery data expire after 30 days.
+the source for project-wide usage. A quota-paused run automatically returns to the queue after the next
+Pacific-Time reset. Cached API responses and derived discovery data expire after 30 days.
 See the official [YouTube quota guide](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits)
 and [developer policies](https://developers.google.com/youtube/terms/developer-policies).
 

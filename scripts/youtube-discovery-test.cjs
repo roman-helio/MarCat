@@ -145,6 +145,13 @@ async function main() {
     const quotaAfterReplay = await caller.creatorDiscovery.quota()
     assert.equal(quotaAfterReplay.search.used, 2)
     assert.equal(quotaAfterReplay.data.used, 3)
+    await database.client.execute({
+      sql: "UPDATE creator_discovery_runs SET status = 'waiting_for_quota', phase = 'waiting_for_quota', heartbeat_at = ? WHERE id = ?",
+      args: ['2020-01-01T00:00:00.000Z', forced.run.id],
+    })
+    await processYouTubeDiscoveryQueue(database.db, secrets)
+    assert.equal((await caller.creatorDiscovery.getRun({ id: forced.run.id })).status, 'completed')
+    assert.equal(networkCalls, 5, 'a run resumed after quota reset must still reuse cached requests')
 
     const promoted = await caller.creatorDiscovery.promote({ runId: first.run.id, candidateId: staged[0].candidate.id })
     const promotedAgain = await caller.creatorDiscovery.promote({

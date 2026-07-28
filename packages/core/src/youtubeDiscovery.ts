@@ -772,6 +772,19 @@ export async function processYouTubeDiscoveryQueue(db: DB, secrets?: SecretsStor
   if (!apiKey) return
   workerRunning = true
   try {
+    const today = quotaDate()
+    const waitingRuns = await db
+      .select({ id: creatorDiscoveryRuns.id, heartbeatAt: creatorDiscoveryRuns.heartbeatAt })
+      .from(creatorDiscoveryRuns)
+      .where(eq(creatorDiscoveryRuns.status, 'waiting_for_quota'))
+    for (const waiting of waitingRuns) {
+      const exhaustedOn = waiting.heartbeatAt ? quotaDate(new Date(waiting.heartbeatAt)) : ''
+      if (exhaustedOn && exhaustedOn === today) continue
+      await db
+        .update(creatorDiscoveryRuns)
+        .set({ status: 'queued', phase: 'queued', error: null, heartbeatAt: now() })
+        .where(eq(creatorDiscoveryRuns.id, waiting.id))
+    }
     const staleBefore = new Date(Date.now() - STALE_RUN_MS).toISOString()
     await db
       .update(creatorDiscoveryRuns)
