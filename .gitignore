@@ -1,0 +1,66 @@
+# Dependencies
+node_modules/
+
+# Build, package and test output
+dist/
+out/
+build/
+release/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+
+# Tool caches
+.turbo/
+.vite/
+.cache/
+.eslintcache
+
+# Local runtime and QA artifacts
+tmp/
+temp_files/
+artifacts/
+logs/
+*.log
+*.pid
+
+# Local databases and backups
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+marcat.db*
+backups/
+
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+.npmrc
+.mcp.json
+**/.mcp.json
+.claude/settings.local.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+credentials*.json
+service-account*.json
+client_secret*.json
+token*.json
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo

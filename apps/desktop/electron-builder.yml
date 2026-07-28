@@ -1,0 +1,75 @@
+appId: com.heliogames.marcat
+productName: MarCat
+copyright: © heliogames
+# electron is hoisted to the workspace root by npm, so electron-builder can't
+# auto-detect its version — pin it (matches the installed electron).
+electronVersion: 43.1.0
+electronDist: ../../node_modules/electron/dist
+# CRITICAL in this monorepo: electron-builder's auto prod-install step prunes
+# devDependencies from the shared (hoisted) node_modules. libsql ships prebuilt
+# bindings, so we never need a rebuild — disable it to keep the step from running.
+npmRebuild: false
+buildDependenciesFromSource: false
+nodeGypRebuild: false
+
+directories:
+  # Intermediate builder output. The release pipeline verifies it, then removes
+  # it after staging the single canonical bundle in release/MarCat-<version>.
+  output: release/.build
+  buildResources: build
+
+# App files to pack (production node_modules are collected automatically).
+files:
+  - out/**
+  - package.json
+
+# libsql ships a native .node binding — it must live outside the asar.
+asarUnpack:
+  - '**/*.node'
+  - '**/node_modules/@libsql/**'
+  - '**/node_modules/libsql/**'
+
+# Drizzle migration SQL is read at runtime from resources/migrations.
+extraResources:
+  - from: ../../packages/db/migrations
+    to: migrations
+  - from: build/icon.png
+    to: icon.png
+  - from: ../../release-data/CHANGELOG.md
+    to: CHANGELOG.md
+  - from: ../../README-PORTABLE-RU.md
+    to: README-RU.md
+  - from: ../../release-data/steam-festivals.json
+    to: steam-festivals.json
+  - from: ../../packages/mcp-server/dist/index.cjs
+    to: mcp/index.cjs
+  - from: ../../packages/mcp-server/package.json
+    to: mcp/package.json
+  - from: ../../node_modules/libsql
+    to: mcp/node_modules/libsql
+  - from: ../../node_modules/@neon-rs/load
+    to: mcp/node_modules/@neon-rs/load
+  - from: ../../node_modules/detect-libc
+    to: mcp/node_modules/detect-libc
+  - from: ../../node_modules/@libsql/win32-x64-msvc
+    to: mcp/node_modules/@libsql/win32-x64-msvc
+
+win:
+  icon: build/icon.ico
+  # No code-signing certificate: skip only signing so electron-builder still
+  # applies the application icon, version metadata, and ASAR integrity data.
+  signExecutable: false
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}

@@ -1,0 +1,342 @@
+[
+  {
+    "name": "Latin American Games Showcase",
+    "type": "festival",
+    "startDate": "2026-05-01",
+    "endDate": null,
+    "applyDeadline": "2026-04-08"
+  },
+  {
+    "name": "Start Your Engine Festival",
+    "type": "festival",
+    "startDate": "2026-05-01",
+    "endDate": null,
+    "applyDeadline": "2026-03-30"
+  },
+  { "name": "Stratagems", "type": "festival", "startDate": "2026-05-01", "endDate": null, "applyDeadline": null },
+  { "name": "INDIE FESTIVAL", "type": "festival", "startDate": "2026-06-01", "endDate": null, "applyDeadline": null },
+  {
+    "name": "MIX Showcase",
+    "type": "festival",
+    "startDate": "2026-06-01",
+    "endDate": "2026-06-05",
+    "applyDeadline": null
+  },
+  { "name": "Out-of-the-box", "type": "festival", "startDate": "2026-06-01", "endDate": null, "applyDeadline": null },
+  {
+    "name": "BIG Summer Showcase",
+    "type": "festival",
+    "startDate": "2026-06-02",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  {
+    "name": "Day of the Devs Summer Game Fest",
+    "type": "festival",
+    "startDate": "2026-06-05",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  {
+    "name": "Green Games Showcase",
+    "type": "festival",
+    "startDate": "2026-06-06",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  { "name": "Wholesome Direct", "type": "festival", "startDate": "2026-06-06", "endDate": null, "applyDeadline": null },
+  {
+    "name": "Wholesome Direct 2026",
+    "type": "festival",
+    "startDate": "2026-06-06",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  {
+    "name": "Dev.Play Indie Festival 2026",
+    "type": "festival",
+    "startDate": "2026-06-08",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  {
+    "name": "Future of Play Direct (Glitch)",
+    "type": "festival",
+    "startDate": "2026-06-08",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  { "name": "Steam Next Fest", "type": "festival", "startDate": "2026-06-19", "endDate": null, "applyDeadline": null },
+  {
+    "name": "Alice in Wonderland Sale",
+    "type": "sale",
+    "startDate": "2026-07-01",
+    "endDate": null,
+    "applyDeadline": "2026-03-31"
+  },
+  { "name": "TactiCon", "type": "festival", "startDate": "2026-07-01", "endDate": null, "applyDeadline": null },
+  {
+    "name": "Women-Led Games (SGF)",
+    "type": "festival",
+    "startDate": "2026-07-01",
+    "endDate": null,
+    "applyDeadline": "2026-04-10"
+  },
+  {
+    "name": "Secret Sauce Showcase",
+    "type": "festival",
+    "startDate": "2026-07-17",
+    "endDate": "2026-07-19",
+    "applyDeadline": null
+  },
+  {
+    "name": "SimFest",
+    "type": "festival",
+    "startDate": "2026-07-20",
+    "endDate": "2026-07-27",
+    "applyDeadline": "2026-05-12"
+  },
+  {
+    "name": "Trains Festival",
+    "type": "festival",
+    "startDate": "2026-07-20",
+    "endDate": "2026-07-27",
+    "applyDeadline": null
+  },
+  {
+    "name": "CO-OPALOOZA",
+    "type": "festival",
+    "startDate": "2026-08-01",
+    "endDate": null,
+    "applyDeadline": "2026-04-17"
+  },
+  {
+    "name": "Games from Pakistan",
+    "type": "festival",
+    "startDate": "2026-08-01",
+    "endDate": null,
+    "applyDeadline": "2026-07-31"
+  },
+  {
+    "name": "Short Games Showcase",
+    "type": "festival",
+    "startDate": "2026-08-01",
+    "endDate": null,
+    "applyDeadline": "2026-06-02"
+  },
+  {
+    "name": "Weird Days: Job Simulator",
+    "type": "festival",
+    "startDate": "2026-08-01",
+    "endDate": null,
+    "applyDeadline": "2026-07-05"
+  },
+  {
+    "name": "Wholesome Games Celebration (Aug)",
+    "type": "festival",
+    "startDate": "2026-08-01",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  {
+    "name": "Tiny Teams",
+    "type": "festival",
+    "startDate": "2026-08-06",
+    "endDate": "2026-08-13",
+    "applyDeadline": "2026-04-30"
+  },
+  {
+    "name": "CAT AWARENESS FELINE SALE",
+    "type": "sale",
+    "startDate": "2026-08-07",
+    "endDate": null,
+    "applyDeadline": "2026-07-07"
+  },
+  {
+    "name": "Isometric RPG Sale 2026",
+    "type": "sale",
+    "startDate": "2026-08-13",
+    "endDate": "2026-08-17",
+    "applyDeadline": null
+  },
+  {
+    "name": "Future Game Show (Gamescom)",
+    "type": "festival",
+    "startDate": "2026-08-26",
+    "endDate": "2026-08-30",
+    "applyDeadline": "2026-07-06"
+  },
+  {
+    "name": "Steam PvE Survival Crafting Fest 2026",
+    "type": "festival",
+    "startDate": "2026-08-31",
+    "endDate": "2026-09-07",
+    "applyDeadline": null
+  },
+  {
+    "name": "Fall in Love Romance Visual Novel Festival",
+    "type": "festival",
+    "startDate": "2026-09-01",
+    "endDate": null,
+    "applyDeadline": "2026-06-29"
+  },
+  {
+    "name": "Prismatic Indie Showcase",
+    "type": "festival",
+    "startDate": "2026-09-01",
+    "endDate": null,
+    "applyDeadline": "2026-07-10"
+  },
+  {
+    "name": "Sword Celebration",
+    "type": "festival",
+    "startDate": "2026-09-01",
+    "endDate": null,
+    "applyDeadline": "2026-07-10"
+  },
+  {
+    "name": "Creative Sandbox Festival",
+    "type": "festival",
+    "startDate": "2026-09-04",
+    "endDate": "2026-09-18",
+    "applyDeadline": "2026-08-15"
+  },
+  {
+    "name": "Mexican Entertainment System",
+    "type": "festival",
+    "startDate": "2026-09-21",
+    "endDate": null,
+    "applyDeadline": "2026-06-30"
+  },
+  {
+    "name": "LudoNarraCon",
+    "type": "festival",
+    "startDate": "2026-10-01",
+    "endDate": null,
+    "applyDeadline": "2026-06-26"
+  },
+  {
+    "name": "Playtime Horror Fest",
+    "type": "festival",
+    "startDate": "2026-10-01",
+    "endDate": null,
+    "applyDeadline": "2026-08-28"
+  },
+  {
+    "name": "The Cozy After Dark Showcase",
+    "type": "festival",
+    "startDate": "2026-10-01",
+    "endDate": null,
+    "applyDeadline": "2026-07-08"
+  },
+  {
+    "name": "Indie Arcade Moray (IAM: Gaming Expo 2026)",
+    "type": "festival",
+    "startDate": "2026-10-03",
+    "endDate": null,
+    "applyDeadline": "2026-07-31"
+  },
+  {
+    "name": "Punk Game Fest",
+    "type": "festival",
+    "startDate": "2026-10-09",
+    "endDate": null,
+    "applyDeadline": "2026-07-23"
+  },
+  {
+    "name": "Steam Cooking Fest 2026",
+    "type": "festival",
+    "startDate": "2026-10-12",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  {
+    "name": "Steam Next Fest (October)",
+    "type": "festival",
+    "startDate": "2026-10-19",
+    "endDate": "2026-10-26",
+    "applyDeadline": "2026-08-31"
+  },
+  {
+    "name": "ZNT Horizon",
+    "type": "festival",
+    "startDate": "2026-10-21",
+    "endDate": null,
+    "applyDeadline": "2026-07-03"
+  },
+  {
+    "name": "ENDIX Indie Showcase 2026",
+    "type": "festival",
+    "startDate": "2026-11-01",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  {
+    "name": "Day of the Devs — Winter Showcase",
+    "type": "festival",
+    "startDate": "2026-12-01",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  { "name": "Steam Winter Sale", "type": "sale", "startDate": "2026-12-01", "endDate": null, "applyDeadline": null },
+  {
+    "name": "Demospree",
+    "type": "festival",
+    "startDate": "2027-01-01",
+    "endDate": null,
+    "applyDeadline": "2026-10-05"
+  },
+  { "name": "IndieCade", "type": "festival", "startDate": "2027-01-01", "endDate": null, "applyDeadline": null },
+  {
+    "name": "The New Game+ Showcase",
+    "type": "festival",
+    "startDate": "2027-01-19",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  { "name": "Future Game Show", "type": "festival", "startDate": "2027-03-01", "endDate": null, "applyDeadline": null },
+  {
+    "name": "ENDIX Indie Showcase",
+    "type": "festival",
+    "startDate": "2027-04-01",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  {
+    "name": "INDIE Live Expo (Summer)",
+    "type": "festival",
+    "startDate": "2027-04-01",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  { "name": "WISHLISTED", "type": "festival", "startDate": "2027-04-01", "endDate": null, "applyDeadline": null },
+  {
+    "name": "Cozy & Family Friendly Game Fest",
+    "type": "festival",
+    "startDate": "2027-05-01",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  { "name": "Future Game Show", "type": "festival", "startDate": "2027-06-01", "endDate": null, "applyDeadline": null },
+  {
+    "name": "The MIX Summer Game Showcase",
+    "type": "festival",
+    "startDate": "2027-06-01",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  {
+    "name": "Wholesome Direct / Wholesome Snack",
+    "type": "festival",
+    "startDate": "2027-06-01",
+    "endDate": null,
+    "applyDeadline": null
+  },
+  {
+    "name": "Secret Sauce Showcase",
+    "type": "festival",
+    "startDate": "2027-07-01",
+    "endDate": null,
+    "applyDeadline": null
+  }
+]

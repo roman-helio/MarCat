@@ -1,0 +1,1 @@
+ALTER TABLE `project_cards` ADD `updated_by` text DEFAULT 'manual' NOT NULL;

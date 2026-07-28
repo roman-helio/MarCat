@@ -1,0 +1,12 @@
+node_modules
+.agents
+.claude
+.mcp.json
+**/dist
+**/out
+**/release
+**/migrations/meta
+package-lock.json
+mcp
+*.db
+*.bin

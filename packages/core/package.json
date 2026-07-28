@@ -1,0 +1,45 @@
+{
+  "name": "@marcat/core",
+  "version": "0.3.6",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./activity-semantics": {
+      "types": "./dist/activitySemantics.d.ts",
+      "import": "./dist/activitySemantics.js",
+      "require": "./dist/activitySemantics.cjs"
+    },
+    "./game-semantics": {
+      "types": "./dist/gameSemantics.d.ts",
+      "import": "./dist/gameSemantics.js",
+      "require": "./dist/gameSemantics.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@marcat/db": "*",
+    "@trpc/server": "^10.45.4",
+    "cheerio": "^1.0.0",
+    "chokidar": "^5.0.0",
+    "drizzle-orm": "^0.45.2",
+    "superjson": "^2.2.1",
+    "turndown": "^7.2.4",
+    "yaml": "^2.9.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/turndown": "^5.0.6"
+  }
+}

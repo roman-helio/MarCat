@@ -1,0 +1,1 @@
+ALTER TABLE `tags` ADD `color_enabled` integer DEFAULT false NOT NULL;

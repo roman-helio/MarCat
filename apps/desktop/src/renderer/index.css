@@ -1,0 +1,663 @@
+@import 'tailwindcss';
+
+/* Class-based dark mode (toggled on <html> by ThemeManager). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Pixel display font, full Cyrillic. One quirk: this build ships an EMPTY glyph for
+ * uppercase Cyrillic Х (U+0425). It's visually identical to Latin X (U+0058), which
+ * IS present — so i18n remaps Х→X at render time (see i18n/useT). Font stays pixel.
+ */
+@font-face {
+  font-family: 'Galmuri7';
+  src: url('./fonts/Galmuri7.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Only the scripts the bilingual UI uses, WOFF2-only (no duplicate legacy WOFF). */
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource/inter/files/inter-cyrillic-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0301, U+0400-052F, U+2116;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource/inter/files/inter-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+20BD, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource/inter/files/inter-cyrillic-500-normal.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0301, U+0400-052F, U+2116;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource/inter/files/inter-latin-500-normal.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+20BD, U+2122, U+2191,
+    U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/*
+ * MarCat design code — "retro-clean".
+ * Retro arcade soul, minimal/clean execution. The pixel face is reserved for
+ * hierarchy; controls and dense data use the body face. Colour is semantic:
+ * coral for actions, red for failure, amber for risk, green for success.
+ */
+:root {
+  --bg: #f6f5f1;
+  --surface: #ffffff;
+  --surface-2: #efeee9;
+  --border: #deddd6;
+  --border-strong: #cac8bf;
+  --text: #24231f;
+  --muted: #6f6e67;
+  --accent: #d35434;
+  --accent-fill: #f18a6f;
+  --accent-hi: #e97758;
+  --accent-fg: #32150f;
+  --alarm: #c8393d;
+  --warning: #946100;
+  --success: #2d7d4a;
+  --info: #3d6f9f;
+
+  /* Pixel display font; Cyrillic falls through to Inter (see @font-face note). */
+  --font-display: 'Galmuri7', 'Inter', ui-monospace, monospace;
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  /* Mono is reserved for the ASCII cat + command input only. */
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Code', 'Consolas', monospace;
+
+  --radius: 8px;
+  --shadow-hard: 0 0 0 1px rgb(0 0 0 / 5%), 0 1px 2px rgb(0 0 0 / 6%), 0 4px 10px rgb(0 0 0 / 4%);
+  --shadow-hard-lift: 0 0 0 1px rgb(0 0 0 / 7%), 0 2px 4px rgb(0 0 0 / 7%), 0 8px 18px rgb(0 0 0 / 7%);
+}
+
+.dark {
+  --bg: #131317;
+  --surface: #1c1c22;
+  --surface-2: #24242b;
+  --border: #2d2d36;
+  --border-strong: #3a3a45;
+  --text: #ededed;
+  --muted: #9a9aa2;
+  --accent: #ff9a80;
+  --accent-fill: #ff8a6d;
+  --accent-hi: #ff9a80;
+  --accent-fg: #2a120d;
+  --alarm: #ff5c5c;
+  --warning: #ffb020;
+  --success: #55c97a;
+  --info: #5aa2ff;
+  --shadow-hard: 0 0 0 1px rgb(255 255 255 / 8%);
+  --shadow-hard-lift: 0 0 0 1px rgb(255 255 255 / 13%);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-accent-fill: var(--accent-fill);
+  --color-accent-hi: var(--accent-hi);
+  --color-accent-fg: var(--accent-fg);
+  --color-alarm: var(--alarm);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --color-info: var(--info);
+
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+
+  --radius-pixel: var(--radius);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    margin: 0;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.45;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow: hidden;
+  }
+  /*
+   * Text-wrapping defaults (skill: make-interfaces-feel-better).
+   * balance → even line lengths on short display headings; pretty → no orphans
+   * on body copy. Both are no-ops on long text, so they're safe as broad defaults.
+   */
+  h1,
+  h2,
+  h3,
+  .t-title {
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  .font-mono,
+  .font-display {
+    font-variant-ligatures: none;
+  }
+  /* Galmuri7 is a bitmap pixel font — single weight, no extra tracking. */
+  .font-display {
+    font-weight: 400;
+    letter-spacing: normal;
+  }
+  /* Four UI text roles. Pixel is a hierarchy signal, never the default face. */
+  .t-title {
+    font-family: var(--font-display);
+    font-size: 18px;
+    line-height: 1.35;
+    letter-spacing: 0;
+    color: var(--color-text);
+  }
+  .t-section {
+    font-family: var(--font-display);
+    font-size: 13px;
+    line-height: 1.4;
+    letter-spacing: 0;
+    color: var(--color-text);
+  }
+  .t-body {
+    font-family: var(--font-body);
+    font-size: 14px;
+    font-weight: 400;
+    line-height: 1.45;
+    letter-spacing: 0;
+    color: var(--color-text);
+  }
+  .t-hint {
+    font-family: var(--font-body);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.35;
+    letter-spacing: 0;
+    color: var(--color-muted);
+  }
+  /* Rendered Markdown (Tailwind preflight strips semantic content styling). */
+  .markdown-content p {
+    margin: 0 0 0.4rem;
+  }
+  .markdown-content ul {
+    list-style: disc;
+    padding-left: 1.2rem;
+    margin: 0 0 0.4rem;
+  }
+  .markdown-content ol {
+    list-style: decimal;
+    padding-left: 1.2rem;
+    margin: 0 0 0.4rem;
+  }
+  .markdown-content strong {
+    font-weight: 600;
+  }
+  .markdown-content a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .markdown-content code {
+    border-radius: 3px;
+    background: var(--color-surface-2);
+    padding: 0.1rem 0.25rem;
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+  .changelog-content h1 {
+    margin: 0 0 1rem;
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  .changelog-content h2 {
+    margin: 1.25rem 0 0.5rem;
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    text-wrap: balance;
+  }
+  .changelog-content h2:first-of-type {
+    margin-top: 0;
+  }
+  .changelog-content h3 {
+    margin: 0.75rem 0 0.35rem;
+    color: var(--color-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  }
+}
+
+@layer utilities {
+  .render-skip {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 44px;
+  }
+}
+
+@layer utilities {
+  /* Shared low-elevation surface shadow. */
+  .shadow-hard {
+    box-shadow: var(--shadow-hard);
+  }
+  /*
+   * Tabular figures for any number that updates in place (countdowns, wishlist
+   * balances, costs, level %, analytics) so digits don't reflow as values change.
+   * Applied selectively — NOT globally — because Inter widens "1" under tabular.
+   */
+  .nums {
+    font-variant-numeric: tabular-nums;
+  }
+  /*
+   * Neutral 1px image separator (skill rule 11). Pure black/white only — never a
+   * tinted neutral, which reads as dirt on the edge. Inset so it never grows layout.
+   */
+  .img-outline {
+    outline: 1px solid rgba(0, 0, 0, 0.1);
+    outline-offset: -1px;
+  }
+  .dark .img-outline {
+    outline-color: rgba(255, 255, 255, 0.1);
+  }
+  /*
+   * Subtle staggered entrance — micro-animation kept deliberately retro: opacity +
+   * a 6px rise, no blur (blur reads as "soft/modern" and fights the pixel aesthetic).
+   * .enter for a single element; .enter-stagger cascades direct children ~45ms apart.
+   */
+  .enter {
+    animation: marcat-enter 240ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+  .enter-stagger > * {
+    animation: marcat-enter 240ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+  .enter-stagger > *:nth-child(1) {
+    animation-delay: 0ms;
+  }
+  .enter-stagger > *:nth-child(2) {
+    animation-delay: 45ms;
+  }
+  .enter-stagger > *:nth-child(3) {
+    animation-delay: 90ms;
+  }
+  .enter-stagger > *:nth-child(4) {
+    animation-delay: 135ms;
+  }
+  .enter-stagger > *:nth-child(5) {
+    animation-delay: 180ms;
+  }
+  .enter-stagger > *:nth-child(6) {
+    animation-delay: 225ms;
+  }
+  .enter-stagger > *:nth-child(n + 7) {
+    animation-delay: 270ms;
+  }
+  @keyframes marcat-enter {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .enter,
+    .enter-stagger > * {
+      animation: none;
+    }
+  }
+
+  /* A short recurring nudge for deadlines overdue by more than five days. */
+  .deadline-dance {
+    display: inline-block;
+    animation: deadline-dance 2800ms ease-in-out infinite;
+  }
+  @keyframes deadline-dance {
+    0%,
+    16%,
+    100% {
+      transform: translateX(0) rotate(0deg);
+    }
+    4% {
+      transform: translateX(-2px) rotate(-1deg);
+    }
+    8% {
+      transform: translateX(2px) rotate(1deg);
+    }
+    12% {
+      transform: translateX(-1px) rotate(-0.5deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .deadline-dance {
+      animation: none;
+    }
+  }
+
+  /* One-shot level-up moment: backdrop, card and particles enter separately. */
+  .level-up-backdrop {
+    animation: level-up-backdrop 180ms ease-out both;
+  }
+  .level-up-card {
+    animation: level-up-card 420ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+  .level-up-spark {
+    animation: level-up-spark 520ms 120ms cubic-bezier(0.2, 0, 0, 1) both;
+  }
+  .level-up-confetti {
+    animation-name: level-up-confetti;
+    animation-timing-function: cubic-bezier(0.2, 0, 0, 1);
+    animation-fill-mode: both;
+  }
+  @keyframes level-up-backdrop {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes level-up-card {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.96);
+      filter: blur(4px);
+    }
+  }
+  @keyframes level-up-spark {
+    from {
+      opacity: 0;
+      transform: scale(0.25) rotate(-12deg);
+      filter: blur(4px);
+    }
+  }
+  @keyframes level-up-confetti {
+    0% {
+      opacity: 0;
+      transform: translateY(-16px) rotate(0deg);
+    }
+    12% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(105vh) rotate(var(--confetti-rotate));
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .level-up-backdrop,
+    .level-up-card,
+    .level-up-spark,
+    .level-up-confetti {
+      animation: none;
+    }
+    .level-up-confetti {
+      display: none;
+    }
+  }
+  /*
+   * Tactile interactions stay quiet: a one-pixel lift and 0.96 press scale.
+   *
+   *  .tactile   — controls that ALREADY carry a hard shadow (filled buttons):
+   *               hover lifts higher (shadow grows + nudge up-left), tap presses
+   *               flat into the shadow (shadow collapses + nudge down-right).
+   *  .hoverlift — flat bordered cards/rows: sit flat at rest, GAIN a hard shadow and
+   *               lift on hover, press back down on tap. For clickable surfaces.
+   *  .tap       — flat/ghost controls with no shadow: just the press nudge.
+   */
+  .tactile {
+    transition-property: transform, box-shadow, background-color, border-color, color, opacity;
+    transition-duration: 110ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  .hoverlift {
+    transition-property: transform, box-shadow, background-color, border-color, color;
+    transition-duration: 110ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  .tap {
+    transition-property: transform, background-color, border-color, color, opacity;
+    transition-duration: 110ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  @media (hover: hover) {
+    .tactile:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-hard-lift);
+    }
+    .hoverlift:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-hard);
+      border-color: var(--color-border-strong);
+    }
+  }
+  .tactile:active:not(:disabled) {
+    transform: scale(0.96);
+    box-shadow: var(--shadow-hard);
+    transition-duration: 40ms;
+  }
+  .hoverlift:active:not(:disabled) {
+    transform: scale(0.96);
+    box-shadow: var(--shadow-hard);
+    transition-duration: 40ms;
+  }
+  .tap:active:not(:disabled) {
+    transform: scale(0.96);
+    transition-duration: 40ms;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tactile,
+    .hoverlift,
+    .tap {
+      transition-property: background-color, border-color, color, opacity;
+    }
+    .tactile:hover,
+    .tactile:active,
+    .hoverlift:hover,
+    .hoverlift:active,
+    .tap:active {
+      transform: none;
+    }
+    .tactile:hover,
+    .tactile:active {
+      box-shadow: var(--shadow-hard);
+    }
+    .hoverlift:hover,
+    .hoverlift:active {
+      box-shadow: none;
+    }
+  }
+  /* Back-compat alias — old name for the flat press nudge. */
+  .press {
+    transition-property: transform;
+    transition-duration: 110ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
+  .press:active {
+    transform: translate(1px, 1px);
+    transition-duration: 40ms;
+  }
+  .blink {
+    animation: marcat-blink 1.1s steps(1, end) infinite;
+  }
+  @keyframes marcat-blink {
+    0%,
+    62% {
+      opacity: 1;
+    }
+    63%,
+    100% {
+      opacity: 0;
+    }
+  }
+  .alarm-pulse {
+    animation: marcat-alarm 0.9s steps(2, end) infinite;
+  }
+  @keyframes marcat-alarm {
+    0% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0.4;
+    }
+  }
+  /* Cat "awake" idle bob. */
+  .bob {
+    animation: marcat-bob 2.4s ease-in-out infinite;
+  }
+  @keyframes marcat-bob {
+    0%,
+    100% {
+      transform: translateY(0);
+    }
+    50% {
+      transform: translateY(-1px);
+    }
+  }
+}
+
+/* react-big-calendar themed to MarCat tokens (plain CSS to beat the lib defaults). */
+.rbc-marcat .rbc-calendar {
+  color: var(--color-text);
+}
+.rbc-marcat .rbc-toolbar {
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.6rem;
+}
+.rbc-marcat .rbc-toolbar button {
+  color: var(--color-text);
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  border-radius: var(--radius);
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0;
+  padding: 5px 10px;
+}
+.rbc-marcat .rbc-toolbar button:hover,
+.rbc-marcat .rbc-toolbar button:focus {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+.rbc-marcat .rbc-toolbar button.rbc-active,
+.rbc-marcat .rbc-toolbar button.rbc-active:hover {
+  background: var(--color-accent-fill);
+  color: var(--color-accent-fg);
+  border-color: var(--color-accent);
+}
+.rbc-marcat .rbc-toolbar-label {
+  font-family: var(--font-display);
+  font-size: 12px;
+}
+.rbc-marcat .rbc-month-view,
+.rbc-marcat .rbc-agenda-view table.rbc-agenda-table,
+.rbc-marcat .rbc-header,
+.rbc-marcat .rbc-day-bg,
+.rbc-marcat .rbc-month-row,
+.rbc-marcat .rbc-date-cell,
+.rbc-marcat .rbc-agenda-view table.rbc-agenda-table td {
+  border-color: var(--color-border) !important;
+}
+.rbc-marcat .rbc-header {
+  color: var(--color-muted);
+  padding: 6px 4px;
+}
+.rbc-marcat .rbc-off-range-bg {
+  background: var(--color-surface-2);
+}
+/* Weekends — a faint neutral tint so Sat/Sun read apart from weekdays (today still wins). */
+.rbc-marcat .rbc-day-bg.rbc-weekend:not(.rbc-today) {
+  background: color-mix(in srgb, var(--color-muted) 7%, transparent);
+}
+.rbc-marcat .rbc-today {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.rbc-marcat .rbc-button-link,
+.rbc-marcat .rbc-date-cell {
+  color: var(--color-text);
+}
+.rbc-marcat .rbc-show-more {
+  color: var(--color-accent);
+  background: transparent;
+}
+
+/* Dependency canvas follows the same surface and control language as the app. */
+.task-graph .react-flow__pane {
+  cursor: grab;
+}
+.task-graph .react-flow__pane:active {
+  cursor: grabbing;
+}
+.task-graph .react-flow__controls {
+  overflow: hidden;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-hard);
+}
+.task-graph .react-flow__controls-button {
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  transition-property: background-color, color;
+  transition-duration: 110ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+.task-graph .react-flow__controls-button:last-child {
+  border-bottom: 0;
+}
+.task-graph .react-flow__controls-button:hover {
+  background: var(--color-surface-2);
+}
+.task-graph .react-flow__controls-button svg {
+  fill: currentColor;
+}
+.task-graph .react-flow__edge-path {
+  transition-property: stroke, stroke-width;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}

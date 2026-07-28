@@ -1,0 +1,3 @@
+[mcp_servers.marcat]
+command = "node"
+args = ['D:\Repo\marketool\packages\mcp-server\dist\index.cjs']

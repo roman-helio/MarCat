@@ -1,0 +1,21 @@
+{
+  "name": "@marcat/mcp-server",
+  "version": "0.3.6",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "marcat-mcp": "./dist/index.cjs"
+  },
+  "main": "./dist/index.cjs",
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@marcat/core": "*",
+    "@marcat/db": "*",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^3.24.1"
+  }
+}
