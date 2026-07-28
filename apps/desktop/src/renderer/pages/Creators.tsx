@@ -10,7 +10,7 @@ import {
   useSensors,
   type DragEndEvent,
 } from '@dnd-kit/core'
-import { Mail, Plus, Search, Send, Sparkles, Star, Trash2 } from 'lucide-react'
+import { ExternalLink, Mail, Plus, Search, Send, Sparkles, Star, Trash2 } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { cn, fieldCls } from '@/lib/utils'
 import { useUi } from '@/store/ui'
@@ -740,6 +740,12 @@ function CreatorDrawer({
     keysSent: parseStringList(keysSentJson).join('\n'),
   })
   const [saved, setSaved] = useState(false)
+  const discoveryEvidence = useQuery({
+    queryKey: ['creator-discovery-promoted-evidence', gameId, c.id],
+    queryFn: () => trpc.creatorDiscovery.promotedEvidence.query({ gameId: gameId!, creatorId: c.id, limit: 5 }),
+    enabled: !!gameId,
+  })
+  const latestDiscovery = discoveryEvidence.data?.[0]
   const save = useMutation({
     mutationFn: async () => {
       const playedGames = listFromText(s.playedGames)
@@ -838,6 +844,44 @@ function CreatorDrawer({
             </span>
           ))}
         </div>
+      )}
+
+      {latestDiscovery && (
+        <section className="rounded-[calc(var(--radius)+4px)] bg-bg p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="text-balance text-sm font-semibold">{t('creators.discoveryEvidence')}</h3>
+            <span className="text-xs text-muted tabular-nums">
+              {t('creators.discoveryFit')} {latestDiscovery.result.fitScore} ·{' '}
+              {latestDiscovery.result.matchedVideoCount} {t('discovery.matches')}
+            </span>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {latestDiscovery.matchedReferences.map((reference) => (
+              <span key={reference} className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] text-accent">
+                {reference}
+              </span>
+            ))}
+          </div>
+          {latestDiscovery.evidence.length > 0 && (
+            <div className="mt-2 space-y-1">
+              {latestDiscovery.evidence.slice(0, 6).map((item) => (
+                <a
+                  key={item.id}
+                  href={item.videoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="group flex min-h-10 items-center gap-2 rounded-[var(--radius)] px-2 py-1.5 text-xs transition-[background-color] duration-150 ease-out hover:bg-surface-2"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-text group-hover:text-accent">{item.videoTitle}</span>
+                    <span className="block truncate text-muted">{item.referenceLabel}</span>
+                  </span>
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted" aria-hidden />
+                </a>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       {/* Contacts. */}

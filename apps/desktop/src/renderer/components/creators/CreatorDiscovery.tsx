@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Check,
+  CircleCheck,
   Clock3,
   ExternalLink,
   Gauge,
+  KeyRound,
   Loader2,
   Mail,
   Pause,
@@ -156,6 +158,7 @@ export function CreatorDiscovery({ gameId }: { gameId: string }) {
       : 'staged'
   const formOpen = sectionState.formOpen === true
   const [form, setForm] = useState<ProfileForm>(emptyForm)
+  const [youtubeKey, setYoutubeKey] = useState('')
 
   const profiles = useQuery({
     queryKey: ['creator-discovery-profiles', gameId],
@@ -206,7 +209,18 @@ export function CreatorDiscovery({ gameId }: { gameId: string }) {
     qc.invalidateQueries({ queryKey: ['creator-discovery-runs', gameId] })
     qc.invalidateQueries({ queryKey: ['creator-discovery-quota'] })
     qc.invalidateQueries({ queryKey: ['creator-discovery-candidates'] })
+    qc.invalidateQueries({ queryKey: ['connector-keys'] })
   }
+
+  const saveYoutubeKey = useMutation({
+    mutationFn: () => trpc.sources.setApiKey.mutate({ provider: 'youtube', key: youtubeKey.trim() }),
+    onSuccess: () => {
+      setYoutubeKey('')
+      invalidate()
+      toast.success(t('discovery.keySaved'))
+    },
+    onError: toast.fromError,
+  })
 
   const createProfile = useMutation({
     mutationFn: () =>
@@ -291,95 +305,185 @@ export function CreatorDiscovery({ gameId }: { gameId: string }) {
       ? 100
       : Math.round((selectedRun.channelsScanned / Math.max(1, selectedRun.channelsFound)) * 100)
     : 0
+  const hasProfile = !!profiles.data?.length
+  const needsSetup = !quota.data?.configured || !hasProfile
 
   return (
     <div className="space-y-5">
-      <section className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="rounded-[calc(var(--radius)+8px)] bg-surface p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
+      {needsSetup && (
+        <section className="rounded-[calc(var(--radius)+8px)] bg-surface p-5 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius)] bg-alarm/10 text-alarm">
+              <Youtube className="h-5 w-5" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-balance text-lg font-semibold">{t('discovery.setupTitle')}</h2>
+              <p className="mt-1 max-w-3xl text-pretty text-sm text-muted">{t('discovery.setupSubtitle')}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            <div className="rounded-[calc(var(--radius)+4px)] bg-bg p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
               <div className="flex items-center gap-2">
-                <Youtube className="h-5 w-5 text-alarm" aria-hidden />
-                <h2 className="text-balance text-lg font-semibold">{t('discovery.title')}</h2>
+                {quota.data?.configured ? (
+                  <CircleCheck className="h-5 w-5 text-success" aria-hidden />
+                ) : (
+                  <KeyRound className="h-5 w-5 text-warning" aria-hidden />
+                )}
+                <h3 className="text-balance font-semibold">{t('discovery.setupKeyTitle')}</h3>
               </div>
-              <p className="mt-1 max-w-2xl text-pretty text-sm text-muted">{t('discovery.subtitle')}</p>
+              {quota.data?.configured ? (
+                <p className="mt-2 text-pretty text-sm text-success">{t('discovery.setupKeyReady')}</p>
+              ) : (
+                <>
+                  <ol className="mt-2 list-decimal space-y-1 pl-5 text-pretty text-xs leading-relaxed text-muted">
+                    <li>{t('discovery.setupKeyStep1')}</li>
+                    <li>{t('discovery.setupKeyStep2')}</li>
+                    <li>{t('discovery.setupKeyStep3')}</li>
+                  </ol>
+                  <a
+                    href="https://console.cloud.google.com/apis/library/youtube.googleapis.com"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-3 inline-flex min-h-10 items-center gap-1.5 text-sm text-accent hover:underline"
+                  >
+                    {t('discovery.openGoogleCloud')}
+                    <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                  </a>
+                  <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                    <input
+                      type="password"
+                      value={youtubeKey}
+                      onChange={(event) => setYoutubeKey(event.target.value)}
+                      placeholder={t('discovery.apiKeyPlaceholder')}
+                      autoComplete="off"
+                      spellCheck={false}
+                      className={fieldCls}
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => saveYoutubeKey.mutate()}
+                      disabled={!youtubeKey.trim() || saveYoutubeKey.isPending}
+                    >
+                      {saveYoutubeKey.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {t('set.save')}
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-pretty text-[11px] leading-relaxed text-muted">
+                    {t('discovery.setupKeyPrivacy')}
+                  </p>
+                </>
+              )}
             </div>
-            <Button size="sm" variant="outline" onClick={() => setSectionState(sectionKey, { formOpen: !formOpen })}>
-              <Plus className="h-4 w-4" />
-              {t('discovery.newProfile')}
-            </Button>
-          </div>
 
-          {profiles.data?.length ? (
-            <div className="mt-4 flex flex-wrap items-end gap-2">
-              <label className="min-w-64 flex-1 t-hint">
-                {t('discovery.profile')}
-                <select
-                  value={selectedProfileId ?? ''}
-                  onChange={(event) => setSectionState(sectionKey, { profileId: event.target.value, runId: null })}
-                  className={cn(fieldCls, 'mt-1')}
+            <div className="rounded-[calc(var(--radius)+4px)] bg-bg p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+              <div className="flex items-center gap-2">
+                {hasProfile ? (
+                  <CircleCheck className="h-5 w-5 text-success" aria-hidden />
+                ) : (
+                  <Search className="h-5 w-5 text-warning" aria-hidden />
+                )}
+                <h3 className="text-balance font-semibold">{t('discovery.setupProfileTitle')}</h3>
+              </div>
+              <p className={cn('mt-2 text-pretty text-sm', hasProfile ? 'text-success' : 'text-muted')}>
+                {t(hasProfile ? 'discovery.setupProfileReady' : 'discovery.setupProfileMissing')}
+              </p>
+              <p className="mt-2 text-pretty text-[11px] leading-relaxed text-muted">
+                {t('discovery.setupProfileLocation')}
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {!needsSetup && (
+        <section className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_340px]">
+          <div className="rounded-[calc(var(--radius)+8px)] bg-surface p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Youtube className="h-5 w-5 text-alarm" aria-hidden />
+                  <h2 className="text-balance text-lg font-semibold">{t('discovery.title')}</h2>
+                </div>
+                <p className="mt-1 max-w-2xl text-pretty text-sm text-muted">{t('discovery.subtitle')}</p>
+              </div>
+              <Button size="sm" variant="outline" onClick={() => setSectionState(sectionKey, { formOpen: !formOpen })}>
+                <Plus className="h-4 w-4" />
+                {t('discovery.newProfile')}
+              </Button>
+            </div>
+
+            {profiles.data?.length ? (
+              <div className="mt-4 flex flex-wrap items-end gap-2">
+                <label className="min-w-64 flex-1 t-hint">
+                  {t('discovery.profile')}
+                  <select
+                    value={selectedProfileId ?? ''}
+                    onChange={(event) => setSectionState(sectionKey, { profileId: event.target.value, runId: null })}
+                    className={cn(fieldCls, 'mt-1')}
+                  >
+                    {profiles.data.map((profile) =>
+                      profile ? (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name} · {profile.references.length} {t('discovery.referencesShort')}
+                        </option>
+                      ) : null,
+                    )}
+                  </select>
+                </label>
+                <Button
+                  size="sm"
+                  onClick={() => start.mutate(false)}
+                  disabled={!selectedProfileId || !quota.data?.configured || start.isPending}
                 >
-                  {profiles.data.map((profile) =>
-                    profile ? (
-                      <option key={profile.id} value={profile.id}>
-                        {profile.name} · {profile.references.length} {t('discovery.referencesShort')}
-                      </option>
-                    ) : null,
-                  )}
-                </select>
-              </label>
-              <Button
-                size="sm"
-                onClick={() => start.mutate(false)}
-                disabled={!selectedProfileId || !quota.data?.configured || start.isPending}
-              >
-                {start.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-                {t('discovery.start')}
-              </Button>
-              <Button
-                size="icon"
-                variant="ghost"
-                title={t('discovery.deleteProfile')}
-                aria-label={t('discovery.deleteProfile')}
-                onClick={() => selectedProfileId && removeProfile.mutate(selectedProfileId)}
-                disabled={!selectedProfileId || removeProfile.isPending}
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </div>
-          ) : (
-            <div className="mt-4 rounded-[var(--radius)] bg-bg p-4 text-pretty text-sm text-muted">
-              {t('discovery.emptyProfiles')}
-            </div>
-          )}
-        </div>
-
-        <aside className="rounded-[calc(var(--radius)+8px)] bg-surface p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
-          <div className="flex items-center gap-2">
-            <Gauge className="h-4 w-4 text-accent" aria-hidden />
-            <h2 className="text-balance font-semibold">{t('discovery.quotaToday')}</h2>
+                  {start.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+                  {t('discovery.start')}
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  title={t('discovery.deleteProfile')}
+                  aria-label={t('discovery.deleteProfile')}
+                  onClick={() => selectedProfileId && removeProfile.mutate(selectedProfileId)}
+                  disabled={!selectedProfileId || removeProfile.isPending}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="mt-4 rounded-[var(--radius)] bg-bg p-4 text-pretty text-sm text-muted">
+                {t('discovery.emptyProfiles')}
+              </div>
+            )}
           </div>
-          {quota.data?.configured ? (
-            <div className="mt-3 grid grid-cols-2 gap-2">
-              <QuotaMeter
-                label={t('discovery.quotaSearch')}
-                remainingLabel={t('discovery.remaining')}
-                {...quota.data.search}
-              />
-              <QuotaMeter
-                label={t('discovery.quotaData')}
-                remainingLabel={t('discovery.remaining')}
-                {...quota.data.data}
-              />
-            </div>
-          ) : (
-            <p className="mt-3 text-pretty text-sm text-warning">{t('discovery.keyMissing')}</p>
-          )}
-          <p className="mt-2 text-pretty text-[11px] text-muted">{t('discovery.quotaHint')}</p>
-        </aside>
-      </section>
 
-      {formOpen && (
+          <aside className="rounded-[calc(var(--radius)+8px)] bg-surface p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+            <div className="flex items-center gap-2">
+              <Gauge className="h-4 w-4 text-accent" aria-hidden />
+              <h2 className="text-balance font-semibold">{t('discovery.quotaToday')}</h2>
+            </div>
+            {quota.data?.configured ? (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <QuotaMeter
+                  label={t('discovery.quotaSearch')}
+                  remainingLabel={t('discovery.remaining')}
+                  {...quota.data.search}
+                />
+                <QuotaMeter
+                  label={t('discovery.quotaData')}
+                  remainingLabel={t('discovery.remaining')}
+                  {...quota.data.data}
+                />
+              </div>
+            ) : (
+              <p className="mt-3 text-pretty text-sm text-warning">{t('discovery.keyMissing')}</p>
+            )}
+            <p className="mt-2 text-pretty text-[11px] text-muted">{t('discovery.quotaHint')}</p>
+          </aside>
+        </section>
+      )}
+
+      {(formOpen || !hasProfile) && (
         <section className="rounded-[calc(var(--radius)+8px)] bg-surface p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
           <div className="grid gap-3 md:grid-cols-2">
             <label className="t-hint">
@@ -402,17 +506,22 @@ export function CreatorDiscovery({ gameId }: { gameId: string }) {
               </select>
             </label>
             <label className="t-hint md:col-span-2">
-              {t('discovery.references')}
+              {t(form.mode === 'topic' ? 'discovery.topicFacets' : 'discovery.references')}
               <textarea
                 value={form.references}
                 onChange={(event) => setForm({ ...form, references: event.target.value })}
                 rows={5}
-                placeholder={t('discovery.referencesHint')}
+                placeholder={t(form.mode === 'topic' ? 'discovery.topicFacetsHint' : 'discovery.referencesHint')}
                 className={cn(fieldCls, 'mt-1 resize-y')}
               />
               <span className="mt-1 block text-[11px] text-muted tabular-nums">
                 {references.length} {t('discovery.referencesShort')}
               </span>
+              {form.mode === 'topic' && (
+                <span className="mt-1 block text-pretty text-[11px] leading-relaxed text-muted">
+                  {t('discovery.topicFacetsExplain')}
+                </span>
+              )}
             </label>
             <label className="t-hint">
               {t('discovery.languages')}
@@ -493,9 +602,11 @@ export function CreatorDiscovery({ gameId }: { gameId: string }) {
               {t('discovery.findContacts')}
             </label>
             <div className="flex gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setSectionState(sectionKey, { formOpen: false })}>
-                {t('common.cancel')}
-              </Button>
+              {hasProfile && (
+                <Button variant="ghost" size="sm" onClick={() => setSectionState(sectionKey, { formOpen: false })}>
+                  {t('common.cancel')}
+                </Button>
+              )}
               <Button
                 size="sm"
                 onClick={() => createProfile.mutate()}
@@ -509,250 +620,252 @@ export function CreatorDiscovery({ gameId }: { gameId: string }) {
         </section>
       )}
 
-      <section className="grid min-h-[360px] gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
-        <aside className="rounded-[calc(var(--radius)+8px)] bg-surface p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
-          <h2 className="px-1 text-balance font-semibold">{t('discovery.runs')}</h2>
-          <div className="mt-2 space-y-1">
-            {profileRuns.map((run) => (
-              <button
-                key={run.id}
-                onClick={() => setSectionState(sectionKey, { runId: run.id })}
-                className={cn(
-                  'min-h-14 w-full rounded-[var(--radius)] px-3 py-2 text-left transition-[background-color,box-shadow,scale] duration-150 ease-out active:scale-[0.96]',
-                  selectedRunId === run.id
-                    ? 'bg-accent/10 shadow-[inset_0_0_0_1px_rgba(39,194,129,0.35)]'
-                    : 'hover:bg-surface-2',
-                )}
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="truncate text-sm font-medium">{formatDate(run.createdAt)}</span>
-                  <span className={cn('rounded-full px-2 py-0.5 text-[10px]', runTone(run.status))}>
-                    {t(`discovery.status.${run.status}`)}
+      {!needsSetup && (
+        <section className="grid min-h-[360px] gap-3 lg:grid-cols-[280px_minmax(0,1fr)]">
+          <aside className="rounded-[calc(var(--radius)+8px)] bg-surface p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+            <h2 className="px-1 text-balance font-semibold">{t('discovery.runs')}</h2>
+            <div className="mt-2 space-y-1">
+              {profileRuns.map((run) => (
+                <button
+                  key={run.id}
+                  onClick={() => setSectionState(sectionKey, { runId: run.id })}
+                  className={cn(
+                    'min-h-14 w-full rounded-[var(--radius)] px-3 py-2 text-left transition-[background-color,box-shadow,scale] duration-150 ease-out active:scale-[0.96]',
+                    selectedRunId === run.id
+                      ? 'bg-accent/10 shadow-[inset_0_0_0_1px_rgba(39,194,129,0.35)]'
+                      : 'hover:bg-surface-2',
+                  )}
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="truncate text-sm font-medium">{formatDate(run.createdAt)}</span>
+                    <span className={cn('rounded-full px-2 py-0.5 text-[10px]', runTone(run.status))}>
+                      {t(`discovery.status.${run.status}`)}
+                    </span>
                   </span>
-                </span>
-                <span className="mt-1 block text-[11px] text-muted tabular-nums">
-                  {run.candidatesStaged} {t('discovery.candidatesShort')} · {run.searchRequestsUsed}{' '}
-                  {t('discovery.requestsShort')}
-                </span>
-              </button>
-            ))}
-            {!profileRuns.length && <p className="p-3 text-pretty text-sm text-muted">{t('discovery.emptyRuns')}</p>}
-          </div>
-        </aside>
+                  <span className="mt-1 block text-[11px] text-muted tabular-nums">
+                    {run.candidatesStaged} {t('discovery.candidatesShort')} · {run.searchRequestsUsed}{' '}
+                    {t('discovery.requestsShort')}
+                  </span>
+                </button>
+              ))}
+              {!profileRuns.length && <p className="p-3 text-pretty text-sm text-muted">{t('discovery.emptyRuns')}</p>}
+            </div>
+          </aside>
 
-        <div className="min-w-0 space-y-3">
-          {selectedRun ? (
-            <div className="rounded-[calc(var(--radius)+8px)] bg-surface p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2">
-                    {selectedRun.status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-info" />}
-                    <h2 className="text-balance font-semibold">{t(`discovery.phase.${selectedRun.phase}`)}</h2>
+          <div className="min-w-0 space-y-3">
+            {selectedRun ? (
+              <div className="rounded-[calc(var(--radius)+8px)] bg-surface p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      {selectedRun.status === 'running' && <Loader2 className="h-4 w-4 animate-spin text-info" />}
+                      <h2 className="text-balance font-semibold">{t(`discovery.phase.${selectedRun.phase}`)}</h2>
+                    </div>
+                    <p className="mt-1 text-sm text-muted tabular-nums">
+                      {selectedRun.channelsScanned}/{selectedRun.channelsFound} {t('discovery.channels')} ·{' '}
+                      {selectedRun.videosScanned} {t('discovery.videos')} · {selectedRun.contactsFound}{' '}
+                      {t('discovery.emails')}
+                    </p>
                   </div>
-                  <p className="mt-1 text-sm text-muted tabular-nums">
-                    {selectedRun.channelsScanned}/{selectedRun.channelsFound} {t('discovery.channels')} ·{' '}
-                    {selectedRun.videosScanned} {t('discovery.videos')} · {selectedRun.contactsFound}{' '}
-                    {t('discovery.emails')}
-                  </p>
-                </div>
-                <div className="flex gap-1">
-                  {['queued', 'running', 'waiting_for_quota'].includes(selectedRun.status) && (
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      onClick={() => pause.mutate(selectedRun.id)}
-                      title={t('discovery.pause')}
-                    >
-                      <Pause className="h-4 w-4" />
-                    </Button>
-                  )}
-                  {['paused', 'waiting_for_quota', 'failed'].includes(selectedRun.status) && (
-                    <Button
-                      size="icon"
-                      variant="outline"
-                      onClick={() => resume.mutate(selectedRun.id)}
-                      title={t('discovery.resume')}
-                    >
-                      <RotateCcw className="h-4 w-4" />
-                    </Button>
-                  )}
-                  {!['completed', 'failed', 'cancelled', 'partial'].includes(selectedRun.status) && (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => cancel.mutate(selectedRun.id)}
-                      title={t('discovery.cancelRun')}
-                    >
-                      <Square className="h-3.5 w-3.5" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-bg">
-                <div
-                  className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
-                  style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
-                />
-              </div>
-              {selectedRun.error && <p className="mt-2 text-pretty text-xs text-alarm">{selectedRun.error}</p>}
-            </div>
-          ) : (
-            <div className="rounded-[calc(var(--radius)+8px)] bg-surface p-8 text-center text-pretty text-sm text-muted shadow-[0_0_0_1px_rgba(0,0,0,0.06)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
-              {t('discovery.selectRun')}
-            </div>
-          )}
-
-          {selectedRun && (
-            <div className="rounded-[calc(var(--radius)+8px)] bg-surface p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Search className="h-4 w-4 text-accent" />
-                  <h2 className="text-balance font-semibold">{t('discovery.staging')}</h2>
-                  <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted tabular-nums">
-                    {candidates.data?.length ?? 0}
-                  </span>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select
-                    value={candidateStatus}
-                    onChange={(event) => setSectionState(sectionKey, { candidateStatus: event.target.value })}
-                    className={cn(fieldCls, 'w-auto min-w-32')}
-                  >
-                    <option value="staged">{t('discovery.filterStaged')}</option>
-                    <option value="promoted">{t('discovery.filterPromoted')}</option>
-                    <option value="dismissed">{t('discovery.filterDismissed')}</option>
-                  </select>
-                  <label className="flex items-center gap-2 text-xs text-muted">
-                    {t('discovery.minFit')}
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={5}
-                      value={minFit}
-                      onChange={(event) => setSectionState(sectionKey, { minFit: Number(event.target.value) })}
-                    />
-                    <span className="w-7 text-right tabular-nums">{minFit}</span>
-                  </label>
-                </div>
-              </div>
-
-              {candidates.isLoading ? (
-                <LoadingState />
-              ) : candidates.error ? (
-                <QueryError error={candidates.error} onRetry={() => candidates.refetch()} />
-              ) : candidates.data?.length ? (
-                <div className="mt-3 space-y-2">
-                  {candidates.data.map(({ candidate, result, contacts, evidence }) => {
-                    const emails = contacts.filter((contact) => contact.type === 'business_email')
-                    return (
-                      <article
-                        key={candidate.id}
-                        className="rounded-[calc(var(--radius)+4px)] bg-bg p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] transition-[box-shadow] duration-150 ease-out hover:shadow-[0_0_0_1px_rgba(0,0,0,0.09),0_2px_4px_rgba(0,0,0,0.05)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+                  <div className="flex gap-1">
+                    {['queued', 'running', 'waiting_for_quota'].includes(selectedRun.status) && (
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        onClick={() => pause.mutate(selectedRun.id)}
+                        title={t('discovery.pause')}
                       >
-                        <div className="flex gap-3">
-                          {candidate.thumbnailUrl ? (
-                            <img
-                              src={candidate.thumbnailUrl}
-                              alt=""
-                              className="h-12 w-12 shrink-0 rounded-[var(--radius)] object-cover outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10"
-                            />
-                          ) : (
-                            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius)] bg-surface-2">
-                              <Youtube className="h-5 w-5 text-muted" />
-                            </div>
-                          )}
-                          <div className="min-w-0 flex-1">
-                            <div className="flex flex-wrap items-start justify-between gap-2">
-                              <div className="min-w-0">
+                        <Pause className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {['paused', 'waiting_for_quota', 'failed'].includes(selectedRun.status) && (
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        onClick={() => resume.mutate(selectedRun.id)}
+                        title={t('discovery.resume')}
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </Button>
+                    )}
+                    {!['completed', 'failed', 'cancelled', 'partial'].includes(selectedRun.status) && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => cancel.mutate(selectedRun.id)}
+                        title={t('discovery.cancelRun')}
+                      >
+                        <Square className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-3 h-2 overflow-hidden rounded-full bg-bg">
+                  <div
+                    className="h-full rounded-full bg-accent transition-[width] duration-300 ease-out"
+                    style={{ width: `${Math.min(100, Math.max(0, progress))}%` }}
+                  />
+                </div>
+                {selectedRun.error && <p className="mt-2 text-pretty text-xs text-alarm">{selectedRun.error}</p>}
+              </div>
+            ) : (
+              <div className="rounded-[calc(var(--radius)+8px)] bg-surface p-8 text-center text-pretty text-sm text-muted shadow-[0_0_0_1px_rgba(0,0,0,0.06)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+                {t('discovery.selectRun')}
+              </div>
+            )}
+
+            {selectedRun && (
+              <div className="rounded-[calc(var(--radius)+8px)] bg-surface p-4 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_2px_4px_rgba(0,0,0,0.04)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Search className="h-4 w-4 text-accent" />
+                    <h2 className="text-balance font-semibold">{t('discovery.staging')}</h2>
+                    <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-muted tabular-nums">
+                      {candidates.data?.length ?? 0}
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select
+                      value={candidateStatus}
+                      onChange={(event) => setSectionState(sectionKey, { candidateStatus: event.target.value })}
+                      className={cn(fieldCls, 'w-auto min-w-32')}
+                    >
+                      <option value="staged">{t('discovery.filterStaged')}</option>
+                      <option value="promoted">{t('discovery.filterPromoted')}</option>
+                      <option value="dismissed">{t('discovery.filterDismissed')}</option>
+                    </select>
+                    <label className="flex items-center gap-2 text-xs text-muted">
+                      {t('discovery.minFit')}
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={5}
+                        value={minFit}
+                        onChange={(event) => setSectionState(sectionKey, { minFit: Number(event.target.value) })}
+                      />
+                      <span className="w-7 text-right tabular-nums">{minFit}</span>
+                    </label>
+                  </div>
+                </div>
+
+                {candidates.isLoading ? (
+                  <LoadingState />
+                ) : candidates.error ? (
+                  <QueryError error={candidates.error} onRetry={() => candidates.refetch()} />
+                ) : candidates.data?.length ? (
+                  <div className="mt-3 space-y-2">
+                    {candidates.data.map(({ candidate, result, contacts, evidence }) => {
+                      const emails = contacts.filter((contact) => contact.type === 'business_email')
+                      return (
+                        <article
+                          key={candidate.id}
+                          className="rounded-[calc(var(--radius)+4px)] bg-bg p-3 shadow-[0_0_0_1px_rgba(0,0,0,0.06),0_1px_2px_-1px_rgba(0,0,0,0.06)] transition-[box-shadow] duration-150 ease-out hover:shadow-[0_0_0_1px_rgba(0,0,0,0.09),0_2px_4px_rgba(0,0,0,0.05)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.08)]"
+                        >
+                          <div className="flex gap-3">
+                            {candidate.thumbnailUrl ? (
+                              <img
+                                src={candidate.thumbnailUrl}
+                                alt=""
+                                className="h-12 w-12 shrink-0 rounded-[var(--radius)] object-cover outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10"
+                              />
+                            ) : (
+                              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[var(--radius)] bg-surface-2">
+                                <Youtube className="h-5 w-5 text-muted" />
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <a
+                                    href={candidate.channelUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex max-w-full items-center gap-1 font-medium hover:text-accent"
+                                  >
+                                    <span className="truncate">{candidate.name}</span>
+                                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                                  </a>
+                                  <p className="mt-0.5 text-xs text-muted tabular-nums">
+                                    {compact(candidate.subscriberCount)} {t('discovery.subscribers')} ·{' '}
+                                    {compact(candidate.avgViews)} {t('discovery.avgViews')}
+                                  </p>
+                                </div>
+                                <span className="rounded-full bg-accent/10 px-2.5 py-1 text-sm font-semibold text-accent tabular-nums">
+                                  {result.fitScore}
+                                </span>
+                              </div>
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {(JSON.parse(result.matchedReferencesJson) as string[]).map((reference) => (
+                                  <span
+                                    key={reference}
+                                    className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted"
+                                  >
+                                    {reference}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="mt-2 grid gap-1 text-xs text-muted sm:grid-cols-3">
+                                <span className="flex items-center gap-1 tabular-nums">
+                                  <Check className="h-3.5 w-3.5 text-success" /> {result.matchedVideoCount}{' '}
+                                  {t('discovery.matches')}
+                                </span>
+                                <span className="flex items-center gap-1 tabular-nums">
+                                  <Clock3 className="h-3.5 w-3.5" /> {formatDate(candidate.latestVideoAt)}
+                                </span>
+                                <span className="flex items-center gap-1 truncate">
+                                  <Mail className="h-3.5 w-3.5" /> {emails[0]?.value ?? t('discovery.noEmail')}
+                                </span>
+                              </div>
+                              {evidence[0] && (
                                 <a
-                                  href={candidate.channelUrl}
+                                  href={evidence[0].videoUrl}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="inline-flex max-w-full items-center gap-1 font-medium hover:text-accent"
+                                  className="mt-2 block truncate text-xs text-info hover:underline"
                                 >
-                                  <span className="truncate">{candidate.name}</span>
-                                  <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                                  {evidence[0].videoTitle}
                                 </a>
-                                <p className="mt-0.5 text-xs text-muted tabular-nums">
-                                  {compact(candidate.subscriberCount)} {t('discovery.subscribers')} ·{' '}
-                                  {compact(candidate.avgViews)} {t('discovery.avgViews')}
-                                </p>
-                              </div>
-                              <span className="rounded-full bg-accent/10 px-2.5 py-1 text-sm font-semibold text-accent tabular-nums">
-                                {result.fitScore}
-                              </span>
+                              )}
                             </div>
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {(JSON.parse(result.matchedReferencesJson) as string[]).map((reference) => (
-                                <span
-                                  key={reference}
-                                  className="rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted"
+                            {result.status === 'staged' && (
+                              <div className="flex shrink-0 flex-col gap-1">
+                                <Button
+                                  size="icon"
+                                  title={t('discovery.promote')}
+                                  aria-label={t('discovery.promote')}
+                                  onClick={() => promote.mutate(candidate.id)}
+                                  disabled={promote.isPending}
                                 >
-                                  {reference}
-                                </span>
-                              ))}
-                            </div>
-                            <div className="mt-2 grid gap-1 text-xs text-muted sm:grid-cols-3">
-                              <span className="flex items-center gap-1 tabular-nums">
-                                <Check className="h-3.5 w-3.5 text-success" /> {result.matchedVideoCount}{' '}
-                                {t('discovery.matches')}
-                              </span>
-                              <span className="flex items-center gap-1 tabular-nums">
-                                <Clock3 className="h-3.5 w-3.5" /> {formatDate(candidate.latestVideoAt)}
-                              </span>
-                              <span className="flex items-center gap-1 truncate">
-                                <Mail className="h-3.5 w-3.5" /> {emails[0]?.value ?? t('discovery.noEmail')}
-                              </span>
-                            </div>
-                            {evidence[0] && (
-                              <a
-                                href={evidence[0].videoUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="mt-2 block truncate text-xs text-info hover:underline"
-                              >
-                                {evidence[0].videoTitle}
-                              </a>
+                                  <Check className="h-4 w-4" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  title={t('discovery.dismiss')}
+                                  aria-label={t('discovery.dismiss')}
+                                  onClick={() => dismiss.mutate(candidate.id)}
+                                  disabled={dismiss.isPending}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
                             )}
                           </div>
-                          {result.status === 'staged' && (
-                            <div className="flex shrink-0 flex-col gap-1">
-                              <Button
-                                size="icon"
-                                title={t('discovery.promote')}
-                                aria-label={t('discovery.promote')}
-                                onClick={() => promote.mutate(candidate.id)}
-                                disabled={promote.isPending}
-                              >
-                                <Check className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                title={t('discovery.dismiss')}
-                                aria-label={t('discovery.dismiss')}
-                                onClick={() => dismiss.mutate(candidate.id)}
-                                disabled={dismiss.isPending}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      </article>
-                    )
-                  })}
-                </div>
-              ) : (
-                <p className="mt-4 rounded-[var(--radius)] bg-bg p-6 text-center text-pretty text-sm text-muted">
-                  {t('discovery.emptyCandidates')}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      </section>
+                        </article>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-4 rounded-[var(--radius)] bg-bg p-6 text-center text-pretty text-sm text-muted">
+                    {t('discovery.emptyCandidates')}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   )
 }

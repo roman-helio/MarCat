@@ -192,6 +192,11 @@ const en: Dict = {
   'discovery.modeTopic': 'Topic / expertise',
   'discovery.references': 'References',
   'discovery.referencesHint': 'One per line: Label | aliases, alternate names | YouTube search queries',
+  'discovery.topicFacets': 'Topic facets',
+  'discovery.topicFacetsHint':
+    'One per line: Ancient Rome | Roman history | Roman Empire documentary\nMedieval warfare | medieval battles | medieval history documentary',
+  'discovery.topicFacetsExplain':
+    'Use several independent facets of the expertise. Channels matching more facets across recent videos rank higher without an LLM.',
   'discovery.referencesShort': 'references',
   'discovery.languages': 'Languages',
   'discovery.seedChannels': 'Seed channel IDs / URLs',
@@ -209,6 +214,25 @@ const en: Dict = {
   'discovery.quotaData': 'Data units',
   'discovery.remaining': 'left',
   'discovery.keyMissing': 'Add a YouTube API key in Settings → Connectors before starting.',
+  'discovery.setupTitle': 'Set up YouTube Discovery',
+  'discovery.setupSubtitle':
+    'Complete the two persistent prerequisites below. This guide disappears automatically when discovery is ready.',
+  'discovery.setupKeyTitle': '1. YouTube Data API key',
+  'discovery.setupKeyReady': 'Connected. The same protected key remains available in Settings → Connectors.',
+  'discovery.setupKeyStep1': 'Create or select a Google Cloud project.',
+  'discovery.setupKeyStep2': 'Enable YouTube Data API v3 for the project.',
+  'discovery.setupKeyStep3':
+    'Create an API key in Credentials, restrict it to YouTube Data API v3, and paste it below.',
+  'discovery.openGoogleCloud': 'Open YouTube Data API in Google Cloud',
+  'discovery.apiKeyPlaceholder': 'Paste YouTube API key',
+  'discovery.setupKeyPrivacy':
+    'The key is free to create and is stored in the operating system’s protected secret storage. Agents and MCP cannot read it.',
+  'discovery.keySaved': 'YouTube API key saved securely',
+  'discovery.setupProfileTitle': '2. Project search profile',
+  'discovery.setupProfileReady': 'Ready. This project has at least one reusable search profile.',
+  'discovery.setupProfileMissing': 'Describe the reference games or topic facets in the form below.',
+  'discovery.setupProfileLocation':
+    'Profiles and references stay with this project. The selected profile, run and candidate filters remain on this page.',
   'discovery.quotaHint':
     'Local exact ledger for this key in MarCat (Pacific Time). Requests made elsewhere in the same Google project are not visible here.',
   'discovery.runs': 'Runs',
@@ -254,6 +278,8 @@ const en: Dict = {
   'discovery.phase.partial': 'Partial artifact — request state needs review',
   'discovery.phase.failed': 'Discovery failed',
   'discovery.phase.cancelled': 'Discovery cancelled',
+  'creators.discoveryEvidence': 'YouTube discovery evidence',
+  'creators.discoveryFit': 'Discovery fit',
   'gmass.organize': 'Organize mailing',
   'gmass.intro': 'Choose address categories, review every personalized message, then create GMass drafts or send them.',
   'gmass.noKey': 'GMass API key is not configured.',
@@ -1309,6 +1335,11 @@ const ru: Dict = {
   'discovery.modeTopic': 'Тематика / экспертиза',
   'discovery.references': 'Референсы',
   'discovery.referencesHint': 'По одному в строке: Название | алиасы, другие названия | поисковые запросы YouTube',
+  'discovery.topicFacets': 'Грани тематики',
+  'discovery.topicFacetsHint':
+    'По одной в строке: Древний Рим | римская история | Roman Empire documentary\nСредневековые войны | битвы Средневековья | medieval history documentary',
+  'discovery.topicFacetsExplain':
+    'Задай несколько независимых граней экспертизы. Каналы с пересечением по большему числу граней в свежих видео поднимутся выше без LLM.',
   'discovery.referencesShort': 'референсов',
   'discovery.languages': 'Языки',
   'discovery.seedChannels': 'ID / ссылки стартовых каналов',
@@ -1326,6 +1357,24 @@ const ru: Dict = {
   'discovery.quotaData': 'Data units',
   'discovery.remaining': 'осталось',
   'discovery.keyMissing': 'Сначала добавь YouTube API key в Настройки → Коннекторы.',
+  'discovery.setupTitle': 'Настрой YouTube Discovery',
+  'discovery.setupSubtitle':
+    'Заполни два постоянных условия ниже. Когда поиск будет готов, эта подсказка исчезнет автоматически.',
+  'discovery.setupKeyTitle': '1. Ключ YouTube Data API',
+  'discovery.setupKeyReady': 'Подключён. Тот же защищённый ключ остаётся в Настройки → Коннекторы.',
+  'discovery.setupKeyStep1': 'Создай или выбери проект в Google Cloud.',
+  'discovery.setupKeyStep2': 'Включи для проекта YouTube Data API v3.',
+  'discovery.setupKeyStep3': 'Создай API key в Credentials, ограничь его только YouTube Data API v3 и вставь ниже.',
+  'discovery.openGoogleCloud': 'Открыть YouTube Data API в Google Cloud',
+  'discovery.apiKeyPlaceholder': 'Вставь YouTube API key',
+  'discovery.setupKeyPrivacy':
+    'Ключ создаётся бесплатно и хранится в защищённом хранилище операционной системы. Агенты и MCP не могут его прочитать.',
+  'discovery.keySaved': 'Ключ YouTube API сохранён безопасно',
+  'discovery.setupProfileTitle': '2. Профиль поиска проекта',
+  'discovery.setupProfileReady': 'Готово. У проекта есть хотя бы один переиспользуемый профиль поиска.',
+  'discovery.setupProfileMissing': 'Опиши игры-референсы или грани тематики в форме ниже.',
+  'discovery.setupProfileLocation':
+    'Профили и референсы остаются в этом проекте. Выбранный профиль, запуск и фильтры кандидатов сохраняются на этой странице.',
   'discovery.quotaHint':
     'Точный локальный учёт запросов этого ключа в MarCat (по тихоокеанскому времени). Запросы из других приложений того же Google-проекта здесь не видны.',
   'discovery.runs': 'Запуски',
@@ -1371,6 +1420,8 @@ const ru: Dict = {
   'discovery.phase.partial': 'Частичный результат — нужно проверить состояние запроса',
   'discovery.phase.failed': 'Поиск завершился с ошибкой',
   'discovery.phase.cancelled': 'Поиск отменён',
+  'creators.discoveryEvidence': 'Совпадения из YouTube Discovery',
+  'creators.discoveryFit': 'Фит поиска',
   'gmass.organize': 'Организовать рассылку',
   'gmass.intro':
     'Выбери категории адресов, проверь каждое персональное письмо и создай черновики GMass или отправь их.',
