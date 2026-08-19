@@ -260,17 +260,16 @@ export function Settings() {
       confirmLabel: t('set.restore'),
     }).then((ok) => ok && restore.mutate(path))
   const [mcpCopied, setMcpCopied] = useState(false)
-  const mcpJson = mcp.data
-    ? JSON.stringify(
-        {
-          mcpServers: { marcat: { command: 'node', args: [mcp.data.serverPath], env: { MARCAT_DB: mcp.data.dbPath } } },
-        },
-        null,
-        2,
-      )
+  // Both clients are pointed at the HTTP endpoint on purpose. The stdio server
+  // lives inside the portable app's extraction directory, which is a new random
+  // path on every launch, so a config naming it stops working the next time
+  // MarCat starts - and while it does work it opens the database as a second
+  // independent writer that MarCat knows nothing about.
+  const claudeMcpCommand = mcp.data
+    ? `claude mcp remove marcat\nclaude mcp add --transport http marcat ${mcp.data.url}`
     : ''
   const codexMcpCommand = mcp.data ? `codex mcp remove marcat\ncodex mcp add marcat --url ${mcp.data.url}` : ''
-  const mcpSetup = mcpClient === 'codex' ? codexMcpCommand : mcpJson
+  const mcpSetup = mcpClient === 'codex' ? codexMcpCommand : claudeMcpCommand
   const atlassianMcpCommand =
     mcpClient === 'codex'
       ? 'codex mcp add atlassian --url https://mcp.atlassian.com/v1/mcp/authv2'

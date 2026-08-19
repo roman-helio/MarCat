@@ -83,17 +83,19 @@ For large read-only joins, aggregates and diagnostics, a local agent with filesy
 through MarCat tools so validation, idempotency and workspace synchronization run.
 `
 
-/** Write a ready .mcp.json (+ AGENTS.md) into a project folder so an external agent can use MarCat. */
-function writeMcpConfig(
-  appPaths: { dbPath: string; mcpServerPath: string } | undefined,
-  after: Record<string, unknown>,
-): boolean {
+/**
+ * Write a ready .mcp.json (+ AGENTS.md) into a project folder so an external agent can use MarCat.
+ *
+ * The HTTP endpoint is what gets handed out, never the stdio server path: in a
+ * portable build that path sits in a temp extraction directory that changes on
+ * every launch, and an external stdio server would open the database as a second
+ * writer outside MarCat's write lock.
+ */
+function writeMcpConfig(appPaths: { mcpUrl?: string } | undefined, after: Record<string, unknown>): boolean {
   const folder = typeof after.folder === 'string' ? after.folder.trim() : ''
-  if (!folder || !appPaths?.mcpServerPath || !appPaths?.dbPath) return false
+  if (!folder || !appPaths?.mcpUrl) return false
   try {
-    const config = {
-      mcpServers: { marcat: { command: 'node', args: [appPaths.mcpServerPath], env: { MARCAT_DB: appPaths.dbPath } } },
-    }
+    const config = { mcpServers: { marcat: { type: 'http', url: appPaths.mcpUrl } } }
     fs.mkdirSync(folder, { recursive: true })
     fs.writeFileSync(join(folder, '.mcp.json'), JSON.stringify(config, null, 2) + '\n')
     fs.writeFileSync(join(folder, 'AGENTS.md'), MCP_AGENTS_MD)

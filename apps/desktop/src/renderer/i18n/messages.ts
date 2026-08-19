@@ -898,7 +898,8 @@ const en: Dict = {
   'set.mcpChoose': 'Where do you work?',
   'set.mcpChooseHint': 'Choose a client to get the correct setup format.',
   'set.mcpCodexStep': 'Run these commands once in a terminal. Codex stores the MarCat MCP connection in its config.',
-  'set.mcpClaudeStep': 'Save this as `.mcp.json` in the game repository root. Claude Code loads it for that project.',
+  'set.mcpClaudeStep':
+    'Run these commands once in a terminal. Claude Code stores the MarCat MCP connection in its config.',
   'set.mcpAfterStep':
     'Keep MarCat open, restart the client, then ask it to use the `marcat` tools. It should call `list_games` first and can then read or update the plan.',
   'set.mcpDbHint': 'Reads/writes this database: {path}',
@@ -2332,7 +2333,7 @@ const ru: Dict = {
   'set.mcpCodexStep':
     'Один раз выполни эти команды в терминале. Codex сохранит подключение MarCat MCP в своём конфиге.',
   'set.mcpClaudeStep':
-    'Сохрани этот текст как `.mcp.json` в корне репозитория игры. Claude Code подключит его для проекта.',
+    'Один раз выполни эти команды в терминале. Claude Code сохранит подключение MarCat MCP в своём конфиге.',
   'set.mcpAfterStep':
     'Оставь MarCat открытым, перезапусти клиент и попроси использовать инструменты `marcat`. Сначала агент вызовет `list_games`, а затем сможет читать и обновлять план.',
   'set.mcpDbHint': 'Читает/пишет эту базу: {path}',

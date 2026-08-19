@@ -21,15 +21,26 @@ const dbPath = (() => {
   }
   return defaultDbPath
 })()
+// Kept in step with MARCAT_MCP_HTTP_PORT in packages/core/src/context.ts.
+const contextSource = fs.readFileSync(path.join(repo, 'packages', 'core', 'src', 'context.ts'), 'utf8')
+const portMatch = contextSource.match(/MARCAT_MCP_HTTP_PORT\s*=\s*([\d_]+)/)
+if (!portMatch) throw new Error('Could not read MARCAT_MCP_HTTP_PORT from packages/core/src/context.ts')
+const mcpHttpUrl = `http://127.0.0.1:${Number(portMatch[1].replace(/_/g, ''))}/mcp`
+
 const outDir = path.join(repo, 'mcp')
 fs.mkdirSync(outDir, { recursive: true })
 
+// Hand out the HTTP endpoint the running app exposes, not the stdio server. A
+// stdio config names a file path - inside a portable build that is a temp
+// extraction directory that changes on every launch - and it opens the database
+// as a second writer that MarCat's write lock never sees. The HTTP endpoint has
+// a fixed address and funnels every agent call through the process that owns the
+// file.
 const mcpJson = {
   mcpServers: {
     marcat: {
-      command: 'node',
-      args: [serverPath],
-      env: { MARCAT_DB: dbPath },
+      type: 'http',
+      url: mcpHttpUrl,
     },
   },
 }
@@ -142,4 +153,6 @@ console.log('Wrote:')
 console.log(' ', path.join(outDir, '.mcp.json'))
 console.log(' ', path.join(outDir, 'AGENTS.md'))
 console.log('\nCopy .mcp.json into your game project root (Claude Code picks it up), or merge its')
-console.log('"mcpServers" entry into an existing one. DB path used:', dbPath)
+console.log('"mcpServers" entry into an existing one. Endpoint:', mcpHttpUrl)
+console.log('MarCat must be running; it owns the database at:', dbPath)
+console.log('Stdio fallback, opens the database as a separate writer:', serverPath)
