@@ -156,6 +156,30 @@ export function createDb(fileUrl: string): CreateDbResult {
 }
 
 /**
+ * Open a database and apply the durability pragmas in one step.
+ *
+ * Prefer this over `createDb`: every writer in the product must run with the
+ * same journal mode, synchronous level and foreign key enforcement, and the one
+ * path that used to call `createDb` on its own - the migration CLI, of all
+ * things - silently ran the most destructive statements in the product with
+ * different durability guarantees than everything else.
+ */
+export async function openDb(fileUrl: string): Promise<CreateDbResult> {
+  const created = createDb(fileUrl)
+  try {
+    await configureConnection(created.client)
+    return created
+  } catch (error) {
+    try {
+      created.client.close()
+    } catch {
+      /* ignore */
+    }
+    throw error
+  }
+}
+
+/**
  * Durability + concurrency pragmas for the long-lived desktop/MCP connection.
  * WAL keeps readers and writers independent. A moderate auto-checkpoint avoids
  * checkpointing almost every commit while keeping the WAL bounded.

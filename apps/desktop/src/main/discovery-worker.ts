@@ -1,5 +1,5 @@
 import { processYouTubeDiscoveryQueue, type SecretsStore } from '@marcat/core'
-import { configureConnection, createDb, fileUrlFromPath } from '@marcat/db'
+import { fileUrlFromPath, openDb } from '@marcat/db'
 
 type DiscoveryWorkerRequest = {
   kind: 'run'
@@ -27,9 +27,8 @@ parentPort.once('message', (event) => {
   const request = event.data as DiscoveryWorkerRequest
   void (async () => {
     if (request?.kind !== 'run' || !request.dbPath) throw new Error('Invalid creator discovery worker request')
-    const database = createDb(fileUrlFromPath(request.dbPath))
+    const database = await openDb(fileUrlFromPath(request.dbPath))
     try {
-      await configureConnection(database.client)
       const secrets: SecretsStore = {
         getClaudeToken: () => undefined,
         setClaudeToken: () => {},
