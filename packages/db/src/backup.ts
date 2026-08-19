@@ -1,10 +1,15 @@
 import fs from 'node:fs'
-import { dirname } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { createClient } from '@libsql/client'
 import { sql } from 'drizzle-orm'
 import { fileUrlFromPath, type DB } from './client'
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** Subdirectory for in-flight snapshots, so a half-written file is never mistaken for a backup. */
+const STAGING_DIR = '.staging'
+
+export type BackupWarning = (message: string, error?: unknown) => void
 
 async function retryWindowsFileOp(operation: () => Promise<void>): Promise<void> {
   let lastError: unknown
@@ -22,12 +27,19 @@ async function retryWindowsFileOp(operation: () => Promise<void>): Promise<void>
   throw lastError
 }
 
-async function removeIfPresent(path: string): Promise<void> {
+async function removeIfPresent(path: string, onWarning?: BackupWarning): Promise<void> {
   try {
     await retryWindowsFileOp(() => fs.promises.rm(path, { force: true }))
-  } catch {
-    // Cleanup must never hide the snapshot/verification error that caused it.
+  } catch (error) {
+    // Cleanup must never hide the snapshot/verification error that caused it,
+    // but it must not vanish either: silently failing here once per launch is
+    // how a backups folder grows to gigabytes of leftovers unnoticed.
+    onWarning?.(`Could not delete ${path}`, error)
   }
+}
+
+function stagingDir(destination: string): string {
+  return join(dirname(destination), STAGING_DIR)
 }
 
 /** Verify that a standalone SQLite file opens and passes a full integrity check. */
@@ -49,23 +61,104 @@ export async function verifyDatabaseFile(path: string): Promise<void> {
 /**
  * Create a transactionally consistent standalone snapshot while writers may be active.
  * VACUUM INTO is SQLite's online snapshot primitive and includes committed WAL pages.
+ *
+ * The working copy is written to a staging subdirectory rather than next to the
+ * finished snapshots: libsql on Windows can hold the file handle past
+ * integrity_check, and a delete that loses that race must not leave a full-size
+ * file where snapshot listing and rotation will never look at it.
  */
-export async function createVerifiedBackup(db: DB, destination: string): Promise<void> {
-  const partial = `${destination}.partial`
+export async function createVerifiedBackup(db: DB, destination: string, onWarning?: BackupWarning): Promise<void> {
+  const staging = stagingDir(destination)
+  const partial = join(staging, `${basename(destination)}.partial`)
   fs.mkdirSync(dirname(destination), { recursive: true })
-  await removeIfPresent(partial)
+  fs.mkdirSync(staging, { recursive: true })
+  await removeIfPresent(partial, onWarning)
   try {
     const quoted = partial.replace(/'/g, "''")
     await db.run(sql.raw(`VACUUM INTO '${quoted}'`))
     await verifyDatabaseFile(partial)
-    await removeIfPresent(destination)
+    await removeIfPresent(destination, onWarning)
     // libsql can retain a short-lived read handle after integrity_check on Windows.
     // Copying the verified immutable snapshot avoids renaming that locked file.
     await fs.promises.copyFile(partial, destination)
     await verifyDatabaseFile(destination)
-    await removeIfPresent(partial)
+    await removeIfPresent(partial, onWarning)
   } catch (error) {
-    await removeIfPresent(partial)
+    await removeIfPresent(partial, onWarning)
     throw error
   }
+}
+
+/**
+ * Delete staged snapshots left behind by earlier runs, plus any `.partial` files
+ * from before staging existed. Returns the number of bytes reclaimed.
+ */
+export async function cleanupBackupStaging(backupDir: string, onWarning?: BackupWarning): Promise<number> {
+  let reclaimed = 0
+  const sweep = async (dir: string, match: (name: string) => boolean): Promise<void> => {
+    if (!fs.existsSync(dir)) return
+    for (const name of fs.readdirSync(dir)) {
+      if (!match(name)) continue
+      const path = join(dir, name)
+      try {
+        const size = fs.statSync(path).size
+        await retryWindowsFileOp(() => fs.promises.rm(path, { force: true }))
+        reclaimed += size
+      } catch (error) {
+        onWarning?.(`Could not remove leftover snapshot ${path}`, error)
+      }
+    }
+  }
+  await sweep(join(backupDir, STAGING_DIR), () => true)
+  await sweep(backupDir, (name) => name.endsWith('.partial'))
+  return reclaimed
+}
+
+export interface DatabaseSnapshot {
+  path: string
+  takenAt: Date
+  size: number
+}
+
+/**
+ * Finished snapshots in `backupDir`, newest first. Staged and partial files are
+ * excluded by construction: they never carry a plain `.db` suffix.
+ */
+export function listDatabaseSnapshots(backupDir: string, match?: (name: string) => boolean): DatabaseSnapshot[] {
+  if (!fs.existsSync(backupDir)) return []
+  const snapshots: DatabaseSnapshot[] = []
+  for (const name of fs.readdirSync(backupDir)) {
+    if (!name.endsWith('.db')) continue
+    if (match && !match(name)) continue
+    const path = join(backupDir, name)
+    try {
+      const stats = fs.statSync(path)
+      if (!stats.isFile()) continue
+      snapshots.push({ path, takenAt: stats.mtime, size: stats.size })
+    } catch {
+      /* unreadable entry */
+    }
+  }
+  return snapshots.sort((a, b) => b.takenAt.getTime() - a.takenAt.getTime())
+}
+
+/**
+ * The newest snapshot that actually opens and passes integrity_check, walking
+ * back through older ones until one does. A snapshot is only worth anything if
+ * it has been verified at the moment it is needed, not at the moment it was
+ * taken.
+ */
+export async function findVerifiedSnapshot(
+  backupDir: string,
+  options: { match?: (name: string) => boolean; onWarning?: BackupWarning } = {},
+): Promise<DatabaseSnapshot | undefined> {
+  for (const snapshot of listDatabaseSnapshots(backupDir, options.match)) {
+    try {
+      await verifyDatabaseFile(snapshot.path)
+      return snapshot
+    } catch (error) {
+      options.onWarning?.(`Snapshot rejected by integrity check: ${snapshot.path}`, error)
+    }
+  }
+  return undefined
 }
