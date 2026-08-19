@@ -59,6 +59,8 @@ let agent: AgentRunner | undefined
 let secrets: SecretsStore | undefined
 let mainWindow: BrowserWindow | undefined
 let startupRecoveryMessage: string | undefined
+/** Set when the marker naming the live database could not be honoured. */
+let activeDbFallbackReason: string | undefined
 let activeDbPath: string | undefined
 let workspace: MarkdownWorkspaceCoordinator | undefined
 let youtubeDiscoveryWorker: ReturnType<typeof setupYoutubeDiscoveryWorker> | undefined
@@ -154,17 +156,42 @@ function activeDbMarkerPath(): string {
   return join(app.getPath('userData'), 'active-db-path.txt')
 }
 
+/**
+ * Which file is the live database.
+ *
+ * The marker exists because the live database is not always the default one. If
+ * it cannot be honoured, falling back to the default silently is the worst
+ * possible answer: the default may be a file from a previous era of the project,
+ * and opening it looks to the user exactly like their data disappearing. So a
+ * marker that fails to resolve is reported, and the fallback is announced rather
+ * than assumed.
+ */
 function readActiveDbPath(): string {
+  const fallback = defaultDatabasePath()
+  const marker = activeDbMarkerPath()
+  let markedPath = ''
   try {
-    const marker = activeDbMarkerPath()
-    const markedPath = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').trim() : ''
-    const userData = resolve(app.getPath('userData'))
-    const resolvedPath = resolve(markedPath)
-    if (markedPath && resolvedPath.startsWith(userData) && fs.existsSync(resolvedPath)) return resolvedPath
-  } catch {
-    /* ignore invalid marker */
+    markedPath = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8').trim() : ''
+  } catch (error) {
+    appendStartupLog(`Could not read the active-database marker ${marker}.`, error)
+    activeDbFallbackReason = 'the marker file could not be read'
+    return fallback
   }
-  return defaultDatabasePath()
+  if (!markedPath) return fallback
+
+  const userData = resolve(app.getPath('userData'))
+  const resolvedPath = resolve(markedPath)
+  if (!resolvedPath.startsWith(userData)) {
+    appendStartupLog(`Active-database marker points outside ${userData}: ${markedPath}.`)
+    activeDbFallbackReason = `the marker pointed outside the data folder (${markedPath})`
+    return fallback
+  }
+  if (!fs.existsSync(resolvedPath)) {
+    appendStartupLog(`Active-database marker points at a missing file: ${resolvedPath}.`)
+    activeDbFallbackReason = `the database it names is missing (${resolvedPath})`
+    return fallback
+  }
+  return resolvedPath
 }
 
 function rememberActiveDbPath(dbPath: string): void {
@@ -545,34 +572,70 @@ async function recoverFromCorruptDatabase(corruptPath: string, error: unknown): 
   }
 }
 
+/**
+ * Swap in the database staged by Settings → Backups.
+ *
+ * Every step says what it did. A restore that quietly does nothing is
+ * indistinguishable from one that was never staged, and that ambiguity is
+ * expensive precisely when someone is trying to get their data back.
+ */
+async function applyStagedRestore(dbPath: string, restore: string): Promise<void> {
+  const swap = `${dbPath}.restore-swap`
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const replaced = join(backupDirectory(), `marcat-replaced-by-restore-${stamp}.db`)
+  let phase = 'verifying the staged file'
+  try {
+    await verifyDatabaseFile(restore)
+    phase = 'copying the staged file into place'
+    fs.rmSync(swap, { force: true })
+    fs.copyFileSync(restore, swap)
+    if (fs.existsSync(dbPath)) {
+      // The database being replaced is kept, not deleted. A staged file can pass
+      // an integrity check and still be the wrong database to be running.
+      phase = 'setting the current database aside'
+      fs.mkdirSync(backupDirectory(), { recursive: true })
+      fs.renameSync(dbPath, replaced)
+      for (const suffix of ['-wal', '-shm']) {
+        if (fs.existsSync(`${dbPath}${suffix}`)) fs.renameSync(`${dbPath}${suffix}`, `${replaced}${suffix}`)
+      }
+    }
+    phase = 'putting the restored database in place'
+    try {
+      fs.renameSync(swap, dbPath)
+    } catch (error) {
+      if (fs.existsSync(replaced)) fs.renameSync(replaced, dbPath)
+      throw error
+    }
+    fs.rmSync(restore, { force: true })
+    for (const suffix of ['-wal', '-shm']) fs.rmSync(`${restore}${suffix}`, { force: true })
+    appendStartupLog(`Staged restore applied. The database it replaced was kept at ${replaced}.`)
+  } catch (error) {
+    fs.rmSync(swap, { force: true })
+    appendStartupLog(`Staged restore failed while ${phase}; the current database was kept.`, error)
+  }
+}
+
 async function initDb(): Promise<DB> {
   let dbPath = readActiveDbPath()
   activeDbPath = dbPath
-  // A staged restore (from Settings → Backups) is swapped in here, before the DB opens.
+  // One line per launch that answers "which database, and was anything staged?".
+  // Without it, a restore that is never seen leaves no trace to investigate.
   const restore = join(app.getPath('userData'), 'marcat.restore')
-  if (fs.existsSync(restore)) {
-    try {
-      await verifyDatabaseFile(restore)
-      const swap = `${dbPath}.restore-swap`
-      const previous = `${dbPath}.restore-previous`
-      fs.copyFileSync(restore, swap)
-      fs.rmSync(previous, { force: true })
-      if (fs.existsSync(dbPath)) fs.renameSync(dbPath, previous)
-      try {
-        fs.renameSync(swap, dbPath)
-      } catch (error) {
-        if (fs.existsSync(previous)) fs.renameSync(previous, dbPath)
-        throw error
-      }
-      fs.rmSync(previous, { force: true })
-      fs.rmSync(`${dbPath}-wal`, { force: true })
-      fs.rmSync(`${dbPath}-shm`, { force: true })
-      fs.rmSync(restore)
-    } catch (error) {
-      appendStartupLog('Staged database restore failed verification; current database was kept.', error)
-      /* leave the current DB if the swap fails */
-    }
+  const staged = fs.existsSync(restore)
+  appendStartupLog(
+    `Database: ${dbPath}${activeDbFallbackReason ? ` (fell back to the default because ${activeDbFallbackReason})` : ''}. ` +
+      `Staged restore: ${staged ? restore : 'none'}.`,
+  )
+  if (activeDbFallbackReason) {
+    // Never let the app quietly open a different database than the one it was
+    // last using: that is indistinguishable from the data having vanished.
+    startupRecoveryMessage = [
+      `MarCat could not use the database it was last working with, because ${activeDbFallbackReason}.`,
+      `It has opened this one instead:\n${dbPath}`,
+      'If this is not the data you expect, close MarCat and restore a backup from Settings → Backups rather than working in it.',
+    ].join('\n\n')
   }
+  if (staged) await applyStagedRestore(dbPath, restore)
 
   let opened: Awaited<ReturnType<typeof openPreparedDb>>
   try {
