@@ -459,6 +459,7 @@ export const events = sqliteTable(
     updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
   },
   (t) => ({
+    byGameDate: index('events_game_date').on(t.gameId, t.occurredAt, t.createdAt),
     bySubject: index('events_game_subject').on(t.gameId, t.subjectType, t.subjectId, t.occurredAt),
     byWishlist: index('events_game_wishlist').on(t.gameId, t.showOnWishlist, t.occurredAt),
     idempotencyKeyUniq: uniqueIndex('events_idempotency_key_unique').on(t.idempotencyKey),
@@ -476,6 +477,8 @@ export const wishlistPoints = sqliteTable(
     date: text('date').notNull(),
     adds: integer('adds'),
     deletes: integer('deletes'),
+    /** Steam removes converted wishlists from the outstanding balance. */
+    purchasesAndActivations: integer('purchases_and_activations'),
     gifts: integer('gifts'),
     balance: integer('balance'),
     net: integer('net'),
@@ -494,9 +497,12 @@ export const wishlistImports = sqliteTable('wishlist_imports', {
     .notNull()
     .references(() => games.id, { onDelete: 'cascade' }),
   filename: text('filename'),
+  /** SHA-256 of the raw CSV, used to recognise exact repeat imports. */
+  checksum: text('checksum'),
   importedAt: text('imported_at').notNull().$defaultFn(nowIso),
   rows: integer('rows').notNull().default(0),
   columnMapping: text('column_mapping'),
+  warningsJson: text('warnings_json').notNull().default('[]'),
 })
 
 /**
@@ -514,13 +520,71 @@ export const analyticsImports = sqliteTable(
       .references(() => games.id, { onDelete: 'cascade' }),
     kind: text('kind', { enum: ['utm_daily', 'utm_country', 'steam_traffic'] }).notNull(),
     filename: text('filename'),
+    /** SHA-256 of the raw CSV, used to recognise exact repeat imports. */
+    checksum: text('checksum'),
     dateFrom: text('date_from'),
     dateTo: text('date_to'),
     rows: integer('rows').notNull().default(0),
     rowsJson: text('rows_json').notNull().default('[]'),
+    warningsJson: text('warnings_json').notNull().default('[]'),
+    parserVersion: integer('parser_version').notNull().default(1),
     importedAt: text('imported_at').notNull().$defaultFn(nowIso),
   },
   (t) => ({ byGameKind: index('analytics_imports_game_kind').on(t.gameId, t.kind, t.importedAt) }),
+)
+
+/** A durable marketing campaign plan layered over one or more imported UTM tuples. */
+export const marketingCampaigns = sqliteTable(
+  'marketing_campaigns',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    gameId: text('game_id')
+      .notNull()
+      .references(() => games.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    objective: text('objective', { enum: ['wishlist_growth', 'traffic', 'sales', 'awareness'] })
+      .notNull()
+      .default('wishlist_growth'),
+    status: text('status', { enum: ['planned', 'active', 'completed', 'archived'] })
+      .notNull()
+      .default('planned'),
+    plannedStart: text('planned_start'),
+    plannedEnd: text('planned_end'),
+    evaluationWindowDays: integer('evaluation_window_days').notNull().default(3),
+    budgetCents: integer('budget_cents'),
+    spendCents: integer('spend_cents'),
+    currency: text('currency').notNull().default('USD'),
+    notes: text('notes'),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({ byGameStatus: index('marketing_campaigns_game_status').on(t.gameId, t.status, t.updatedAt) }),
+)
+
+/** One imported UTM tuple assigned to a durable marketing campaign. */
+export const campaignTouchpoints = sqliteTable(
+  'campaign_touchpoints',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    gameId: text('game_id')
+      .notNull()
+      .references(() => games.id, { onDelete: 'cascade' }),
+    campaignId: text('campaign_id')
+      .notNull()
+      .references(() => marketingCampaigns.id, { onDelete: 'cascade' }),
+    canonicalKey: text('canonical_key').notNull(),
+    source: text('source').notNull().default(''),
+    campaign: text('campaign').notNull().default(''),
+    medium: text('medium').notNull().default(''),
+    content: text('content').notNull().default(''),
+    term: text('term').notNull().default(''),
+    eventId: text('event_id').references(() => events.id, { onDelete: 'set null' }),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    byCampaign: index('campaign_touchpoints_campaign').on(t.campaignId, t.createdAt),
+    uniqueTuple: uniqueIndex('campaign_touchpoints_game_tuple').on(t.gameId, t.canonicalKey),
+  }),
 )
 
 /** UTM-tagged Steam links for attributing traffic to marketing activities. */
@@ -656,32 +720,36 @@ export const providerSettings = sqliteTable('provider_settings', {
 /* ----------- Industry events (global festivals catalog + per-game picks) ----------- */
 
 /** Shared events of interest to ANY project (Steam festivals, conferences, sales). Global. */
-export const industryEvents = sqliteTable('industry_events', {
-  id: text('id').primaryKey().$defaultFn(uuid),
-  name: text('name').notNull(),
-  type: text('type').notNull().default('festival'),
-  /** ISO date the festival runs. */
-  startDate: text('start_date').notNull(),
-  endDate: text('end_date'),
-  /** ISO date of the nearest application/submission deadline. */
-  applyDeadline: text('apply_deadline'),
-  url: text('url'), // festival website
-  applyUrl: text('apply_url'), // application form / contact
-  organizer: text('organizer'),
-  description: text('description'), // full details the cat uses
-  notes: text('notes'),
-  /** Festival attributes (the cat uses these to judge fit). */
-  steamEvent: text('steam_event'), // yes | maybe | no
-  steamFeature: text('steam_feature'), // yes | maybe | no
-  media: integer('media', { mode: 'boolean' }),
-  offline: integer('offline', { mode: 'boolean' }),
-  /** Catalogue participation cost in USD. The legacy SQLite column name is preserved for existing databases. */
-  costUsd: integer('fee_usd'),
-  source: text('source', { enum: ['manual', 'ai', 'import'] })
-    .notNull()
-    .default('manual'),
-  createdAt: text('created_at').notNull().$defaultFn(nowIso),
-})
+export const industryEvents = sqliteTable(
+  'industry_events',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    name: text('name').notNull(),
+    type: text('type').notNull().default('festival'),
+    /** ISO date the festival runs. */
+    startDate: text('start_date').notNull(),
+    endDate: text('end_date'),
+    /** ISO date of the nearest application/submission deadline. */
+    applyDeadline: text('apply_deadline'),
+    url: text('url'), // festival website
+    applyUrl: text('apply_url'), // application form / contact
+    organizer: text('organizer'),
+    description: text('description'), // full details the cat uses
+    notes: text('notes'),
+    /** Festival attributes (the cat uses these to judge fit). */
+    steamEvent: text('steam_event'), // yes | maybe | no
+    steamFeature: text('steam_feature'), // yes | maybe | no
+    media: integer('media', { mode: 'boolean' }),
+    offline: integer('offline', { mode: 'boolean' }),
+    /** Catalogue participation cost in USD. The legacy SQLite column name is preserved for existing databases. */
+    costUsd: integer('fee_usd'),
+    source: text('source', { enum: ['manual', 'ai', 'import'] })
+      .notNull()
+      .default('manual'),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({ byDate: index('industry_events_date').on(t.startDate, t.name) }),
+)
 
 /** A game "picks" the industry events it cares about. */
 export const festivalPicks = sqliteTable(
@@ -710,6 +778,10 @@ export const creators = sqliteTable(
   {
     id: text('id').primaryKey().$defaultFn(uuid),
     name: text('name').notNull(),
+    /** Whether the contact represents an individual person or a media outlet/team. */
+    entityType: text('entity_type', { enum: ['person', 'media'] })
+      .notNull()
+      .default('person'),
     handle: text('handle'),
     kind: text('kind').notNull().default('youtuber'), // youtuber|streamer|tiktoker|journalist|podcaster|steam_curator|other
     primaryPlatform: text('primary_platform'),
@@ -754,6 +826,7 @@ export const creators = sqliteTable(
   (t) => ({
     channelKeyUniq: uniqueIndex('creators_channel_key').on(t.channelKey),
     youtubeChannelUniq: uniqueIndex('creators_youtube_channel_id').on(t.youtubeChannelId),
+    byName: index('creators_name').on(t.name, t.id),
   }),
 )
 
@@ -781,7 +854,10 @@ export const creatorPicks = sqliteTable(
     pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
     createdAt: text('created_at').notNull().$defaultFn(nowIso),
   },
-  (t) => ({ uniq: uniqueIndex('creator_picks_game_creator').on(t.gameId, t.creatorId) }),
+  (t) => ({
+    uniq: uniqueIndex('creator_picks_game_creator').on(t.gameId, t.creatorId),
+    byGameStatus: index('creator_picks_game_status').on(t.gameId, t.pipelineStatus, t.creatorId),
+  }),
 )
 
 /* ----------------------- YouTube creator discovery staging ----------------------- */
@@ -855,6 +931,7 @@ export const creatorDiscoveryRuns = sqliteTable(
     videosScanned: integer('videos_scanned').notNull().default(0),
     candidatesStaged: integer('candidates_staged').notNull().default(0),
     contactsFound: integer('contacts_found').notNull().default(0),
+    youtubeCompletedAt: text('youtube_completed_at'),
     error: text('error'),
     heartbeatAt: text('heartbeat_at'),
     startedAt: text('started_at'),
@@ -865,6 +942,56 @@ export const creatorDiscoveryRuns = sqliteTable(
     byGame: index('creator_discovery_runs_game').on(t.gameId, t.createdAt),
     byProfileHash: index('creator_discovery_runs_profile_hash').on(t.profileId, t.profileHash, t.createdAt),
     byStatus: index('creator_discovery_runs_status').on(t.status, t.createdAt),
+  }),
+)
+
+/**
+ * Normalized, resumable YouTube search pages for an active discovery run.
+ * Rows contain only request cursors and are deleted after the YouTube phase finishes.
+ */
+export const creatorDiscoveryRunSearches = sqliteTable(
+  'creator_discovery_run_searches',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    runId: text('run_id')
+      .notNull()
+      .references(() => creatorDiscoveryRuns.id, { onDelete: 'cascade' }),
+    taskKey: text('task_key').notNull(),
+    query: text('query').notNull(),
+    pageToken: text('page_token'),
+    relevanceLanguage: text('relevance_language'),
+    priority: integer('priority').notNull().default(0),
+    status: text('status', { enum: ['queued', 'completed'] })
+      .notNull()
+      .default('queued'),
+    completedAt: text('completed_at'),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    uniq: uniqueIndex('creator_discovery_run_searches_unique').on(t.runId, t.taskKey),
+    byQueue: index('creator_discovery_run_searches_queue').on(t.runId, t.status, t.priority, t.createdAt),
+  }),
+)
+
+/** Parsed channel ids awaiting analysis; raw YouTube responses never enter SQLite. */
+export const creatorDiscoveryRunChannels = sqliteTable(
+  'creator_discovery_run_channels',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    runId: text('run_id')
+      .notNull()
+      .references(() => creatorDiscoveryRuns.id, { onDelete: 'cascade' }),
+    channelId: text('channel_id').notNull(),
+    status: text('status', { enum: ['queued', 'scanned', 'skipped'] })
+      .notNull()
+      .default('queued'),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    uniq: uniqueIndex('creator_discovery_run_channels_unique').on(t.runId, t.channelId),
+    byQueue: index('creator_discovery_run_channels_queue').on(t.runId, t.status, t.createdAt),
   }),
 )
 
@@ -979,7 +1106,66 @@ export const creatorDiscoveryContacts = sqliteTable(
   }),
 )
 
-/** Durable request cache/idempotency ledger. It never stores the API key itself. */
+/** Durable user-visible work accepted by MarCat and completed by a background worker. */
+export const backgroundOperations = sqliteTable(
+  'background_operations',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    gameId: text('game_id')
+      .notNull()
+      .references(() => games.id, { onDelete: 'cascade' }),
+    kind: text('kind', { enum: ['creator_promotion'] }).notNull(),
+    /** Feature-specific durable scope; creator promotion uses the discovery run id. */
+    scopeId: text('scope_id').notNull(),
+    dedupeKey: text('dedupe_key').notNull(),
+    status: text('status', { enum: ['queued', 'running', 'completed', 'partial', 'failed', 'cancelled'] })
+      .notNull()
+      .default('queued'),
+    selected: integer('selected').notNull(),
+    processed: integer('processed').notNull().default(0),
+    succeeded: integer('succeeded').notNull().default(0),
+    failed: integer('failed').notNull().default(0),
+    createdCount: integer('created_count').notNull().default(0),
+    updatedCount: integer('updated_count').notNull().default(0),
+    error: text('error'),
+    startedAt: text('started_at'),
+    finishedAt: text('finished_at'),
+    heartbeatAt: text('heartbeat_at'),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    byQueue: index('background_operations_queue').on(t.kind, t.status, t.createdAt),
+    byScope: index('background_operations_scope').on(t.kind, t.scopeId, t.createdAt),
+    byDedupe: index('background_operations_dedupe').on(t.dedupeKey, t.status),
+  }),
+)
+
+/** Per-entity progress keeps bulk operations resumable and retry-safe after process failure. */
+export const backgroundOperationItems = sqliteTable(
+  'background_operation_items',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    operationId: text('operation_id')
+      .notNull()
+      .references(() => backgroundOperations.id, { onDelete: 'cascade' }),
+    entityId: text('entity_id').notNull(),
+    status: text('status', { enum: ['queued', 'running', 'completed', 'failed', 'cancelled'] })
+      .notNull()
+      .default('queued'),
+    outcome: text('outcome', { enum: ['created', 'updated'] }),
+    resultEntityId: text('result_entity_id'),
+    error: text('error'),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    uniq: uniqueIndex('background_operation_items_entity').on(t.operationId, t.entityId),
+    byQueue: index('background_operation_items_queue').on(t.operationId, t.status, t.createdAt),
+  }),
+)
+
+/** Short-lived quota/idempotency ledger. It never stores API keys or provider responses. */
 export const youtubeApiRequests = sqliteTable(
   'youtube_api_requests',
   {
@@ -994,8 +1180,6 @@ export const youtubeApiRequests = sqliteTable(
     quotaBucket: text('quota_bucket', { enum: ['search', 'data'] }).notNull(),
     quotaCost: integer('quota_cost').notNull(),
     quotaDate: text('quota_date').notNull(),
-    responseJson: text('response_json'),
-    cacheExpiresAt: text('cache_expires_at'),
     error: text('error'),
     reservedAt: text('reserved_at'),
     requestedAt: text('requested_at'),
@@ -1023,6 +1207,40 @@ export const youtubeQuotaUsage = sqliteTable(
     updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
   },
   (t) => ({ uniq: uniqueIndex('youtube_quota_usage_unique').on(t.keyFingerprint, t.quotaDate, t.bucket) }),
+)
+
+/**
+ * Durable, provider-agnostic request cache for paid creator discovery APIs.
+ * Keys are fingerprinted and responses are reused, so restarting or repeating
+ * an identical search does not silently spend credits twice.
+ */
+export const creatorDiscoveryApiRequests = sqliteTable(
+  'creator_discovery_api_requests',
+  {
+    id: text('id').primaryKey().$defaultFn(uuid),
+    lastRunId: text('last_run_id').references(() => creatorDiscoveryRuns.id, { onDelete: 'set null' }),
+    provider: text('provider').notNull(),
+    keyFingerprint: text('key_fingerprint').notNull(),
+    endpoint: text('endpoint').notNull(),
+    requestHash: text('request_hash').notNull(),
+    status: text('status', { enum: ['running', 'succeeded', 'failed', 'uncertain'] })
+      .notNull()
+      .default('running'),
+    responseJson: text('response_json'),
+    creditsCharged: integer('credits_charged').notNull().default(0),
+    creditsRemaining: integer('credits_remaining'),
+    cacheExpiresAt: text('cache_expires_at'),
+    error: text('error'),
+    requestedAt: text('requested_at'),
+    completedAt: text('completed_at'),
+    updatedAt: text('updated_at').notNull().$defaultFn(nowIso),
+    createdAt: text('created_at').notNull().$defaultFn(nowIso),
+  },
+  (t) => ({
+    uniq: uniqueIndex('creator_discovery_api_requests_unique').on(t.provider, t.keyFingerprint, t.requestHash),
+    byRun: index('creator_discovery_api_requests_run').on(t.lastRunId, t.createdAt),
+    byStatus: index('creator_discovery_api_requests_status').on(t.provider, t.status, t.updatedAt),
+  }),
 )
 
 /** A logged touch in the correspondence with a creator (the CRM thread). */
@@ -1206,6 +1424,8 @@ export type TaskDependency = typeof taskDependencies.$inferSelect
 export type EventRow = typeof events.$inferSelect
 export type ActivityRow = typeof events.$inferSelect
 export type WishlistPoint = typeof wishlistPoints.$inferSelect
+export type MarketingCampaign = typeof marketingCampaigns.$inferSelect
+export type CampaignTouchpoint = typeof campaignTouchpoints.$inferSelect
 export type IndustryEvent = typeof industryEvents.$inferSelect
 export type Creator = typeof creators.$inferSelect
 export type NewCreator = typeof creators.$inferInsert
@@ -1217,6 +1437,9 @@ export type CreatorDiscoveryCandidate = typeof creatorDiscoveryCandidates.$infer
 export type CreatorDiscoveryRunCandidate = typeof creatorDiscoveryRunCandidates.$inferSelect
 export type CreatorDiscoveryEvidence = typeof creatorDiscoveryEvidence.$inferSelect
 export type CreatorDiscoveryContact = typeof creatorDiscoveryContacts.$inferSelect
+export type BackgroundOperation = typeof backgroundOperations.$inferSelect
+export type BackgroundOperationItem = typeof backgroundOperationItems.$inferSelect
+export type CreatorDiscoveryApiRequest = typeof creatorDiscoveryApiRequests.$inferSelect
 export type YoutubeApiRequest = typeof youtubeApiRequests.$inferSelect
 export type YoutubeQuotaUsage = typeof youtubeQuotaUsage.$inferSelect
 export type CreatorTouch = typeof creatorTouches.$inferSelect

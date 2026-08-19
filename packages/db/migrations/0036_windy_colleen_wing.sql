@@ -1,0 +1,1 @@
+ALTER TABLE `creators` ADD `entity_type` text DEFAULT 'person' NOT NULL;
