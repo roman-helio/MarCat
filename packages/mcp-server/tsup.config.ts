@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 const packageVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version
 
 export default defineConfig({
-  entry: ['src/index.ts'],
+  entry: ['src/index.ts', 'src/promotion-worker.ts'],
   format: ['cjs'],
   dts: false,
   clean: true,

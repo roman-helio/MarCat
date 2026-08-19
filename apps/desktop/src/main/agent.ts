@@ -1,5 +1,10 @@
 import { spawn, execSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type {
+  AiAuthHealth,
   AgentAdviceResult,
   AgentProviderStatus,
   AgentRunner,
@@ -33,7 +38,7 @@ You can RESEARCH the web (WebSearch / WebFetch). When the user asks about a fest
   • ADD a researched creator and pick it for this game: {"name" (required), "handle" (channel URL — used as the dedup key), "kind" ("youtuber"|"streamer"|"tiktoker"|"journalist"|"podcaster"|"steam_curator"|"other"), "primaryPlatform", "audience" (number of subscribers/followers), "avgViews" (number), "engagementRate" (0..1), "lastActiveAt" ("YYYY-MM-DD" of last post), "cadencePerMonth" (number), "topics" (array of genres/themes they cover), "language", "region", "costUsd" (number, participation/collaboration cost if known; 0 if free), "acceptsKeysOnly" (boolean), "contacts" (array of {"type":"business_email"|"form"|"dm"|"manager","value":"…","source":"api"|"scrape"|"manual","sourceUrl":"…","verified":boolean,"gated":boolean}), "channels" (array of {platform,url,subscribers,avgViews,lastPostAt,postsPerMonth}), "notes", "description"}.
   • ENRICH an existing picked creator: set "entityId" (shown in the game state's influencer list) + only the fields you learned.
 - creator_pick (pick an EXISTING catalogue creator into this game): {"creatorId": "<id>"}. Use when the creator is already in the catalogue and just needs to be added to this game.
-- creator_discovery_search (configure and queue a high-volume YouTube discovery run for human review). Use op:"create" with EITHER {"profileId":"<existing id>"} OR a new reusable profile: {"name":"…", "mode":"games"|"topic", "references":[{"label":"…","aliases":["…"],"queryTerms":["…"],"weight":1}], "languages":["en"], "includeTerms":["…"], "excludeTerms":["…"], "seedChannels":["…"], "maxSearchRequests":10, "maxChannels":500, "recentVideoLimit":50, "discoverContacts":true}. In topic mode references are independent topic facets (for example Ancient Rome, Medieval warfare, Archaeology) whose overlap identifies subject experts. This queues an idempotent background run into a staging artifact; it does NOT add candidates to the live CRM. Reuse a supplied profileId whenever its existing inputs fit. The user must enter the YouTube key in the app; never ask them to paste a secret into chat and never include a key in a change.
+- creator_discovery_search (configure and queue one high-volume creator discovery run after one human confirmation). The run automatically uses every connected source: YouTube and/or Instagram, TikTok and X. Use op:"create" with EITHER {"profileId":"<existing id>"} OR a new reusable profile: {"name":"…", "mode":"games"|"topic", "references":[{"label":"…","aliases":["…"],"queryTerms":["…"],"weight":1}], "languages":["en"], "includeTerms":["…"], "excludeTerms":["…"], "seedChannels":["…"], "maxSearchRequests":10, "maxChannels":500, "recentVideoLimit":50, "discoverContacts":true}. In topic mode references are independent topic facets (for example Ancient Rome, Medieval warfare, Archaeology) whose overlap identifies subject experts. The proposal summary MUST state the exact niche/profile, references, languages, search-request budget, creator cap and whether public contacts are collected; the user's Apply action is the confirmation that queues it. Reuse a supplied profileId whenever its existing inputs fit. This queues an idempotent background run into a results artifact; it does NOT add creators to project Contacts. Never emit hundreds of individual creator changes for a discovery request. The user must enter connector keys in the app; never ask them to paste a secret into chat and never include a key in a change.
 - FINDING INFLUENCERS + CONTACTS — use ONLY clean, in-ToS methods: discover candidates with WebSearch; pull metrics (subscribers, views, recency, topics) via the YouTube Data API / public pages; extract emails with (a) a regex over the channel's public description/About text, (b) WebFetch of the site/Linktree/contact-form the channel links to, (c) public bios (X/Twitch/IG). Record each contact's real "sourceUrl". Do NOT attempt to bypass YouTube's gated "View email address" (login/CAPTCHA) — if only that gated email exists, add a contact with "gated":true and no value, and note that the user must open the channel's About to copy it. Only store business/public contacts. Judge fit deterministically-ish (topic match, audience, activity/recency, cost — keys-only is a plus for indie) and explain WHY each creator fits in the summary; the app computes the exact fit score itself.
 - OUTREACH / CRM: to plan reaching out, create concrete tasks (e.g. "Draft pitch to <creator>", "Follow up if no reply in 5 business days") with due dates and put a tag named EXACTLY after the creator's name on each so they link into the creator's CRM. DRAFT the actual pitch email INTO the task "description" (markdown), personalized, with a reply-to-opt-out line and a real sender signature placeholder. Never fabricate an email address or send anything — you only draft; the user sends manually.
 DevHub (a Jira/Confluence-style tool) is reached ONLY through its own tools (mcp__devhub__*) — there is NOTHING to "set up" from MarCat and you must NEVER emit mcp_config for it. If those tools are available to you, just call them to pull the team's real project context (the game's spec, descriptions, prior decisions, wiki, knowledge graph) and ground your plan in it instead of guessing. If the user asks to "connect to / use / set up DevHub" and the mcp__devhub tools are NOT available to you, do not ask for a folder — explain that DevHub is connected by installing the DevHub MCP in their Claude Code (Settings → DevHub guide), and return no changes.
@@ -150,6 +155,16 @@ function runClaude(
   onChild?: (child: ReturnType<typeof spawn> | null) => void,
   options?: { noTools?: boolean; timeoutMs?: number },
 ): Promise<string> {
+  const env = claudeEnvironment(token)
+  const args = ['-p', '--output-format', 'json']
+  if (options?.noTools) args.push('--tools', process.platform === 'win32' ? '""' : '')
+  else args.push('--allowedTools', 'WebSearch,WebFetch,mcp__devhub')
+  if (model) args.push('--model', model)
+  if (resumeSessionId) args.push('--resume', resumeSessionId)
+  return runCli('claude', 'Claude Code', args, input, env, signal, onChild, options?.timeoutMs)
+}
+
+function claudeEnvironment(token?: string): NodeJS.ProcessEnv {
   const env = { ...process.env }
   if (token) {
     // Only a real Anthropic API key (sk-ant-api…) goes to ANTHROPIC_API_KEY.
@@ -162,12 +177,7 @@ function runClaude(
       delete env.ANTHROPIC_API_KEY
     }
   }
-  const args = ['-p', '--output-format', 'json']
-  if (options?.noTools) args.push('--tools', process.platform === 'win32' ? '""' : '')
-  else args.push('--allowedTools', 'WebSearch,WebFetch,mcp__devhub')
-  if (model) args.push('--model', model)
-  if (resumeSessionId) args.push('--resume', resumeSessionId)
-  return runCli('claude', 'Claude Code', args, input, env, signal, onChild, options?.timeoutMs)
+  return env
 }
 
 function runCodex(
@@ -222,13 +232,30 @@ function commandOutput(command: string): string {
   }).trim()
 }
 
-function claudeStatus(available: boolean, token?: string): AgentProviderStatus {
+type ClaudeAuthCheck = {
+  fingerprint: string
+  health: AiAuthHealth
+  checkedAt: string
+}
+const CLAUDE_AUTH_CHECK_TTL_MS = 15 * 60_000
+
+function tokenFingerprint(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
+
+function claudeStatus(available: boolean, token?: string, check?: ClaudeAuthCheck): AgentProviderStatus {
   if (!available) return { available: false, authenticated: false, authMode: 'none' }
   if (token) {
+    const currentCheck = check?.fingerprint === tokenFingerprint(token) ? check : undefined
+    const verifiedIsFresh =
+      currentCheck?.health !== 'verified' || Date.now() - Date.parse(currentCheck.checkedAt) < CLAUDE_AUTH_CHECK_TTL_MS
+    const authHealth = currentCheck && verifiedIsFresh ? currentCheck.health : 'unverified'
     return {
       available: true,
-      authenticated: true,
+      authenticated: authHealth !== 'invalid' && authHealth !== 'error',
       authMode: /^sk-ant-api/i.test(token) ? 'api_key' : /^sk-ant-oat/i.test(token) ? 'oauth_token' : 'unknown',
+      authHealth,
+      checkedAt: currentCheck?.checkedAt,
     }
   }
   try {
@@ -239,12 +266,60 @@ function claudeStatus(available: boolean, token?: string): AgentProviderStatus {
       available: true,
       authenticated: true,
       authMode: method.includes('claude.ai') ? 'subscription' : method.includes('api') ? 'api_key' : 'unknown',
+      authHealth: 'verified',
       account: typeof status.email === 'string' ? status.email : undefined,
       subscription: typeof status.subscriptionType === 'string' ? status.subscriptionType : undefined,
     }
   } catch {
     return { available: true, authenticated: false, authMode: 'none' }
   }
+}
+
+async function verifyClaudeCredential(token: string): Promise<void> {
+  const probeConfigDir = mkdtempSync(join(tmpdir(), 'marcat-claude-auth-'))
+  const args = [
+    '-p',
+    '--output-format',
+    'json',
+    '--safe-mode',
+    '--system-prompt',
+    'This is an authentication check. Reply only OK.',
+    '--tools',
+    process.platform === 'win32' ? '""' : '',
+    '--model',
+    'haiku',
+    '--no-session-persistence',
+    '--max-budget-usd',
+    '0.05',
+  ]
+  try {
+    const env = claudeEnvironment(token)
+    // Isolate the probe from Claude Code's own login so a rejected MarCat token
+    // cannot silently fall back to credentials stored in the user's CLI profile.
+    env.CLAUDE_CONFIG_DIR = probeConfigDir
+    env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1'
+    const raw = await runCli(
+      'claude',
+      'Claude Code authentication check',
+      args,
+      'Reply only OK.',
+      env,
+      undefined,
+      undefined,
+      45_000,
+    )
+    const envelope = extractJson(raw)
+    if (envelope?.is_error === true || envelope?.api_error_status) {
+      throw new Error(String(envelope.result ?? envelope.api_error_status ?? 'Claude authentication failed'))
+    }
+  } finally {
+    rmSync(probeConfigDir, { recursive: true, force: true })
+  }
+}
+
+function failedAuthHealth(error: unknown): AiAuthHealth {
+  const message = error instanceof Error ? error.message : String(error)
+  return /\b401\b|auth|token|credential|unauthori[sz]ed|expired|forbidden/i.test(message) ? 'invalid' : 'error'
 }
 
 function codexStatus(available: boolean): AgentProviderStatus {
@@ -272,6 +347,7 @@ export function createAgentRunner(
   cliAvailability: Record<AiProvider, boolean>,
 ): AgentRunner {
   const active = new Set<ReturnType<typeof spawn>>()
+  let claudeAuthCheck: ClaudeAuthCheck | undefined
   const selectedProvider = (): AiProvider => getProvider() ?? (cliAvailability.claude ? 'claude' : 'codex')
   const execute = async (
     input: string,
@@ -304,15 +380,42 @@ export function createAgentRunner(
       if (!envelope.result) throw new Error('Codex CLI returned no final response')
       return { raw, resultText: envelope.result, sessionId: envelope.sessionId, model: 'codex' }
     }
-    const raw = await runClaude(input, getToken(), resumeSessionId, model, signal, onChild, options)
+    const token = getToken()
+    let raw: string
+    try {
+      raw = await runClaude(input, token, resumeSessionId, model, signal, onChild, options)
+    } catch (error) {
+      if (token) {
+        claudeAuthCheck = {
+          fingerprint: tokenFingerprint(token),
+          health: failedAuthHealth(error),
+          checkedAt: new Date().toISOString(),
+        }
+      }
+      throw error
+    }
     const envelope = extractJson(raw)
     if (envelope && envelope.is_error === true) {
       const msg = typeof envelope.result === 'string' ? envelope.result : 'Claude Code returned an error'
+      if (token) {
+        claudeAuthCheck = {
+          fingerprint: tokenFingerprint(token),
+          health: failedAuthHealth(msg),
+          checkedAt: new Date().toISOString(),
+        }
+      }
       throw new Error(
         msg.includes('401') || /authenticat/i.test(msg)
           ? `${msg}\n(run \`claude setup-token\` and paste the OAuth token in Settings, or run \`claude login\`)`
           : msg,
       )
+    }
+    if (token) {
+      claudeAuthCheck = {
+        fingerprint: tokenFingerprint(token),
+        health: 'verified',
+        checkedAt: new Date().toISOString(),
+      }
     }
     return {
       raw,
@@ -326,10 +429,47 @@ export function createAgentRunner(
     status(): AgentRuntimeStatus {
       const provider = selectedProvider()
       const providers = {
-        claude: claudeStatus(cliAvailability.claude, getToken()),
+        claude: claudeStatus(cliAvailability.claude, getToken(), claudeAuthCheck),
         codex: codexStatus(cliAvailability.codex),
       }
       return { provider, available: providers[provider].authenticated, providers }
+    },
+    async verifyAuth(provider): Promise<AgentProviderStatus> {
+      if (provider === 'codex') return codexStatus(cliAvailability.codex)
+      const token = getToken()
+      if (!cliAvailability.claude || !token) return claudeStatus(cliAvailability.claude, token)
+      const fingerprint = tokenFingerprint(token)
+      try {
+        await verifyClaudeCredential(token)
+        claudeAuthCheck = { fingerprint, health: 'verified', checkedAt: new Date().toISOString() }
+      } catch (error) {
+        claudeAuthCheck = { fingerprint, health: failedAuthHealth(error), checkedAt: new Date().toISOString() }
+      }
+      return claudeStatus(cliAvailability.claude, token, claudeAuthCheck)
+    },
+    async loginAuth(provider): Promise<void> {
+      if (provider !== 'claude') throw new Error('Interactive login is not supported for this provider.')
+      if (!cliAvailability.claude) throw new Error('Claude Code CLI is not available.')
+      let tracked: ReturnType<typeof spawn> | undefined
+      const onChild = (child: ReturnType<typeof spawn> | null) => {
+        if (child) {
+          tracked = child
+          active.add(child)
+        } else if (tracked) {
+          active.delete(tracked)
+        }
+      }
+      await runCli(
+        'claude',
+        'Claude Code sign-in',
+        ['auth', 'login', '--claudeai'],
+        '',
+        { ...process.env },
+        undefined,
+        onChild,
+        10 * 60_000,
+      )
+      claudeAuthCheck = undefined
     },
     async run({ prompt, context, resumeSessionId, model, signal }) {
       // First turn sends SYSTEM + game state; follow-ups resume the session (context retained).

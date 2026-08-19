@@ -1,4 +1,4 @@
-import { and, asc, eq, type InferInsertModel } from 'drizzle-orm'
+import { and, asc, eq, lte, or, sql, type InferInsertModel, type SQL } from 'drizzle-orm'
 import { festivalPicks, games, industryEvents } from '@marcat/db'
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
@@ -30,6 +30,13 @@ const fields = {
 const item = z.object(fields)
 /** Partial: every field optional, plus the id. */
 const patch = z.object(fields).partial().extend({ id: z.string() })
+const festivalSearchInput = z.object({
+  query: z.string().trim().min(1).max(200).optional(),
+  from: z.string().optional(),
+  to: z.string().optional(),
+  limit: z.number().int().min(1).max(100).default(20),
+  offset: z.number().int().min(0).default(0),
+})
 
 function normalizeKeyPart(value: string): string {
   return value.trim().replace(/\s+/g, ' ').toLowerCase()
@@ -52,6 +59,84 @@ function toValues(input: Record<string, unknown>): Partial<EventInsert> {
 export const festivalsRouter = router({
   /** Global catalogue of industry events (festivals/conferences/sales). */
   list: publicProcedure.query(({ ctx }) => ctx.db.select().from(industryEvents).orderBy(asc(industryEvents.startDate))),
+
+  /** Compact, paginated catalogue search for agents and large event archives. */
+  search: publicProcedure.input(festivalSearchInput).query(async ({ ctx, input }) => {
+    const filters: SQL[] = []
+    const query = input.query?.trim()
+    if (query) {
+      const forms = [
+        ...new Set([
+          query,
+          query.toLocaleLowerCase(),
+          query.toLocaleUpperCase(),
+          `${query.slice(0, 1).toLocaleUpperCase()}${query.slice(1).toLocaleLowerCase()}`,
+        ]),
+      ]
+      const searchable = [
+        industryEvents.name,
+        industryEvents.type,
+        industryEvents.organizer,
+        industryEvents.description,
+        industryEvents.notes,
+        industryEvents.steamEvent,
+        industryEvents.steamFeature,
+      ]
+      filters.push(
+        or(...forms.flatMap((form) => searchable.map((column) => sql`instr(coalesce(${column}, ''), ${form}) > 0`)))!,
+      )
+    }
+    if (input.from) {
+      filters.push(sql`coalesce(${industryEvents.endDate}, ${industryEvents.startDate}) >= ${input.from}`)
+    }
+    if (input.to) filters.push(lte(industryEvents.startDate, input.to))
+    const where = filters.length ? and(...filters) : undefined
+
+    let rowsQuery = ctx.db.select().from(industryEvents).$dynamic()
+    let countQuery = ctx.db
+      .select({ value: sql<number>`count(*)` })
+      .from(industryEvents)
+      .$dynamic()
+    if (where) {
+      rowsQuery = rowsQuery.where(where)
+      countQuery = countQuery.where(where)
+    }
+    const [rows, countRows] = await Promise.all([
+      rowsQuery
+        .orderBy(asc(industryEvents.startDate), asc(industryEvents.name))
+        .limit(input.limit)
+        .offset(input.offset),
+      countQuery,
+    ])
+    const totalCount = Number(countRows[0]?.value ?? 0)
+    const nextOffset = input.offset + rows.length
+    return {
+      totalCount,
+      offset: input.offset,
+      limit: input.limit,
+      nextOffset: nextOffset < totalCount ? nextOffset : null,
+      items: rows.map((festival) => ({
+        id: festival.id,
+        name: festival.name.slice(0, 300),
+        type: festival.type.slice(0, 80),
+        startDate: festival.startDate,
+        endDate: festival.endDate,
+        applyDeadline: festival.applyDeadline,
+        organizer: festival.organizer?.slice(0, 200) ?? null,
+        url: festival.url?.slice(0, 500) ?? null,
+        applyUrl: festival.applyUrl?.slice(0, 500) ?? null,
+        steamEvent: festival.steamEvent?.slice(0, 100) ?? null,
+        steamFeature: festival.steamFeature?.slice(0, 100) ?? null,
+        media: festival.media,
+        offline: festival.offline,
+        costUsd: festival.costUsd,
+      })),
+    }
+  }),
+
+  get: publicProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
+    return (await ctx.db.select().from(industryEvents).where(eq(industryEvents.id, input.id)).limit(1))[0] ?? null
+  }),
 
   /** Which games participate in (picked) each festival — for the global view. */
   participation: publicProcedure.query(async ({ ctx }) => {

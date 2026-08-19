@@ -184,6 +184,8 @@ async function buildProjectCard(db: DB, input: Lookup) {
       date: wishlistPoints.date,
       adds: wishlistPoints.adds,
       deletes: wishlistPoints.deletes,
+      purchasesAndActivations: wishlistPoints.purchasesAndActivations,
+      gifts: wishlistPoints.gifts,
       balance: wishlistPoints.balance,
       net: wishlistPoints.net,
     })

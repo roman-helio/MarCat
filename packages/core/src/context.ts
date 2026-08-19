@@ -1,6 +1,9 @@
 import type { DB } from '@marcat/db'
 import type { MarkdownWorkspaceCoordinator } from './workspace/coordinator'
 
+export const MARCAT_MCP_HTTP_PORT = 47_831
+export const MARCAT_MCP_HTTP_URL = `http://127.0.0.1:${MARCAT_MCP_HTTP_PORT}/mcp`
+
 export type ProposedOp = 'create' | 'update' | 'delete'
 
 export interface ProposedChange {
@@ -78,11 +81,14 @@ export interface AgentAdviceResult {
 
 export type AiProvider = 'claude' | 'codex'
 export type AiAuthMode = 'subscription' | 'oauth_token' | 'api_key' | 'unknown' | 'none'
+export type AiAuthHealth = 'verified' | 'unverified' | 'invalid' | 'error'
 
 export interface AgentProviderStatus {
   available: boolean
   authenticated: boolean
   authMode: AiAuthMode
+  authHealth?: AiAuthHealth
+  checkedAt?: string
   account?: string
   subscription?: string
 }
@@ -102,6 +108,10 @@ export interface AgentRunner {
   provider?(): AiProvider
   /** CLI and authentication diagnostics shown in Settings. */
   status?(): AgentRuntimeStatus
+  /** Makes a short real CLI request so Settings can distinguish a saved credential from a working one. */
+  verifyAuth?(provider: AiProvider): Promise<AgentProviderStatus>
+  /** Starts the provider's official interactive sign-in flow. */
+  loginAuth?(provider: AiProvider): Promise<void>
   cancelAll?(): void
 }
 
@@ -125,8 +135,18 @@ export interface Context {
   workspace?: MarkdownWorkspaceCoordinator
   agent?: AgentRunner
   secrets?: SecretsStore
+  /** Notify the isolated discovery worker after a durable run is queued. */
+  wakeCreatorDiscovery?: () => void
+  /** Notify the isolated bulk-promotion worker after an operation is queued. */
+  wakeCreatorPromotion?: () => void
   /** Runtime metadata and filesystem paths known by the desktop main process. */
-  appPaths?: { dbPath: string; mcpServerPath: string; appVersion?: string; changelogPath?: string }
+  appPaths?: {
+    dbPath: string
+    mcpServerPath: string
+    mcpUrl?: string
+    appVersion?: string
+    changelogPath?: string
+  }
 }
 
 export type CreateContext = () => Context | Promise<Context>

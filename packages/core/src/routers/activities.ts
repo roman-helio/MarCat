@@ -1,4 +1,4 @@
-import { and, desc, eq } from 'drizzle-orm'
+import { and, desc, eq, gte, lte, or, sql, type SQL } from 'drizzle-orm'
 import { creatorPicks, creators, events, festivalPicks, industryEvents, tasks, type DB } from '@marcat/db'
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
@@ -37,6 +37,54 @@ const editableFields = z.object({
   comments: z.number().int().nullable().optional(),
   isOwn: z.boolean().optional(),
 })
+
+const activityListInput = z.object({
+  gameId: z.string(),
+  subjectType: activitySubject.optional(),
+  subjectId: z.string().nullable().optional(),
+  wishlistOnly: z.boolean().optional(),
+  search: z.string().optional(),
+  from: day.optional(),
+  to: day.optional(),
+  limit: z.number().int().min(1).max(1000).optional(),
+  offset: z.number().int().min(0).optional(),
+})
+
+function activityFilters(input: z.infer<typeof activityListInput>): SQL[] {
+  const filters: SQL[] = [eq(events.gameId, input.gameId)]
+  if (input.subjectType) filters.push(eq(events.subjectType, input.subjectType))
+  if (input.subjectId !== undefined) {
+    filters.push(input.subjectId === null ? sql`${events.subjectId} IS NULL` : eq(events.subjectId, input.subjectId))
+  }
+  if (input.wishlistOnly) filters.push(eq(events.showOnWishlist, true))
+  if (input.from) filters.push(gte(events.occurredAt, input.from))
+  if (input.to) filters.push(lte(events.occurredAt, input.to))
+  const query = input.search?.trim()
+  if (query) {
+    const forms = [
+      ...new Set([
+        query,
+        query.toLocaleLowerCase(),
+        query.toLocaleUpperCase(),
+        `${query.slice(0, 1).toLocaleUpperCase()}${query.slice(1).toLocaleLowerCase()}`,
+      ]),
+    ]
+    const searchable = [events.title, events.description, events.subjectLabel, events.channel, events.platform]
+    filters.push(
+      or(...forms.flatMap((form) => searchable.map((column) => sql`instr(coalesce(${column}, ''), ${form}) > 0`)))!,
+    )
+  }
+  return filters
+}
+
+function activityExcerpt(body: string, query: string | undefined, maxLength = 240): string | null {
+  const text = body.replace(/\s+/g, ' ').trim()
+  if (!text) return null
+  const matchAt = query ? text.toLocaleLowerCase().indexOf(query.toLocaleLowerCase()) : 0
+  const start = Math.max(0, matchAt < 0 ? 0 : matchAt - 80)
+  const end = Math.min(text.length, start + maxLength)
+  return `${start > 0 ? '…' : ''}${text.slice(start, end)}${end < text.length ? '…' : ''}`
+}
 
 function titleFrom(title: string | undefined, body: string | undefined, dir?: 'outbound' | 'inbound' | null): string {
   const explicit = title?.trim()
@@ -111,40 +159,69 @@ async function applyStatusAfter(
 }
 
 export const activitiesRouter = router({
-  list: publicProcedure
-    .input(
-      z.object({
-        gameId: z.string(),
-        subjectType: activitySubject.optional(),
-        subjectId: z.string().nullable().optional(),
-        wishlistOnly: z.boolean().optional(),
-        search: z.string().optional(),
-        from: day.optional(),
-        to: day.optional(),
-        limit: z.number().int().min(1).max(1000).optional(),
-      }),
-    )
-    .query(async ({ ctx, input }) => {
-      let rows = await ctx.db
+  list: publicProcedure.input(activityListInput).query(async ({ ctx, input }) => {
+    const rows = await ctx.db
+      .select()
+      .from(events)
+      .where(and(...activityFilters(input)))
+      .orderBy(desc(events.occurredAt), desc(events.createdAt))
+      .limit(input.limit ?? 300)
+      .offset(input.offset ?? 0)
+    return rows.map((row) => ({ ...row, body: row.description }))
+  }),
+
+  /** Compact page for agents; full bodies remain available through get. */
+  search: publicProcedure.input(activityListInput).query(async ({ ctx, input }) => {
+    const filters = activityFilters(input)
+    const limit = Math.min(input.limit ?? 20, 100)
+    const offset = input.offset ?? 0
+    const [rows, countRows] = await Promise.all([
+      ctx.db
         .select()
         .from(events)
-        .where(eq(events.gameId, input.gameId))
-        .orderBy(desc(events.occurredAt), desc(events.createdAt))
-      if (input.subjectType) rows = rows.filter((row) => row.subjectType === input.subjectType)
-      if (input.subjectId !== undefined) rows = rows.filter((row) => row.subjectId === input.subjectId)
-      if (input.wishlistOnly) rows = rows.filter((row) => row.showOnWishlist)
-      if (input.from) rows = rows.filter((row) => row.occurredAt >= input.from!)
-      if (input.to) rows = rows.filter((row) => row.occurredAt <= input.to!)
-      const needle = input.search?.trim().toLocaleLowerCase()
-      if (needle) {
-        rows = rows.filter((row) =>
-          [row.title, row.description, row.subjectLabel, row.channel, row.platform]
-            .filter(Boolean)
-            .some((value) => value!.toLocaleLowerCase().includes(needle)),
-        )
-      }
-      return rows.slice(0, input.limit ?? 300).map((row) => ({ ...row, body: row.description }))
-    }),
+        .where(and(...filters))
+        .orderBy(desc(events.occurredAt), desc(events.createdAt), desc(events.id))
+        .limit(limit)
+        .offset(offset),
+      ctx.db
+        .select({ value: sql<number>`count(*)` })
+        .from(events)
+        .where(and(...filters)),
+    ])
+    const totalCount = Number(countRows[0]?.value ?? 0)
+    const nextOffset = offset + rows.length
+    return {
+      totalCount,
+      offset,
+      limit,
+      nextOffset: nextOffset < totalCount ? nextOffset : null,
+      items: rows.map((row) => ({
+        id: row.id,
+        gameId: row.gameId,
+        occurredAt: row.occurredAt,
+        subjectType: row.subjectType,
+        subjectId: row.subjectId,
+        subjectLabel: row.subjectLabel,
+        showOnWishlist: row.showOnWishlist,
+        direction: row.direction,
+        channel: row.channel,
+        statusAfter: row.statusAfter,
+        type: row.type,
+        platform: row.platform,
+        placement: row.placement,
+        title: row.title,
+        excerpt: activityExcerpt(row.description, input.search),
+        url: row.url,
+        views: row.views,
+        likes: row.likes,
+        comments: row.comments,
+        isOwn: row.isOwn,
+        createdBy: row.createdBy,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      })),
+    }
+  }),
 
   get: publicProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const row = (await ctx.db.select().from(events).where(eq(events.id, input.id)).limit(1))[0]

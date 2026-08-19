@@ -66,9 +66,36 @@ export type WishlistCsvMapping = {
   date: string
   adds?: string
   deletes?: string
+  purchasesAndActivations?: string
   gifts?: string
   balance?: string
   net?: string
+}
+
+export type WishlistCsvReportKind = 'steam_daily' | 'steam_cohort' | 'generic'
+
+/** Distinguish Steam's daily action export from its mixed-grain cohort report. */
+export function detectWishlistCsvReportKind(
+  input: string,
+  headers: string[],
+  filename?: string,
+): WishlistCsvReportKind {
+  const normalizedHeaders = new Set(headers.map((header) => header.toLowerCase().replace(/[\s_-]+/g, '')))
+  if (
+    normalizedHeaders.has('monthcohort') ||
+    /steam\s+wishlist\s+cohort\s+data/i.test(input) ||
+    /steamwishlistcohorts?_/i.test(filename ?? '')
+  ) {
+    return 'steam_cohort'
+  }
+  if (
+    /steam\s+wishlisting\s+data/i.test(input) ||
+    /steamwishlists?_/i.test(filename ?? '') ||
+    (normalizedHeaders.has('datelocal') && normalizedHeaders.has('adds') && normalizedHeaders.has('deletes'))
+  ) {
+    return 'steam_daily'
+  }
+  return 'generic'
 }
 
 /** Detect both Steamworks column names and common hand-made wishlist exports. */
@@ -81,6 +108,7 @@ export function detectWishlistCsvMapping(headers: string[]): WishlistCsvMapping 
     date: find([/^datelocal$/, /^date$/, /^day$/]) ?? '',
     adds: find([/^adds?$/, /^additions?$/, /^wishlistadds?$/]),
     deletes: find([/^deletes?$/, /^removals?$/, /^wishlistdeletes?$/]),
+    purchasesAndActivations: find([/^purchasesandactivations$/, /^wishlistpurchasesandactivations$/, /^conversions$/]),
     gifts: find([/^gifts?$/]),
     balance: find([/^balance$/, /^totalwishlists?$/, /^wishlistbalance$/]),
     net: find([/^net$/, /^netchange$/]),

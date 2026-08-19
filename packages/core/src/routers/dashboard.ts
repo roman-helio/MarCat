@@ -268,6 +268,10 @@ export const dashboardRouter = router({
             gameId: wishlistPoints.gameId,
             date: wishlistPoints.date,
             adds: wishlistPoints.adds,
+            deletes: wishlistPoints.deletes,
+            purchasesAndActivations: wishlistPoints.purchasesAndActivations,
+            gifts: wishlistPoints.gifts,
+            net: wishlistPoints.net,
             balance: wishlistPoints.balance,
           })
           .from(wishlistPoints)

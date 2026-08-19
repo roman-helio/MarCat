@@ -1,4 +1,5 @@
 import { initTRPC } from '@trpc/server'
+import { withDatabaseWritePurpose } from '@marcat/db'
 import type { Context } from './context'
 
 // No data transformer for now: all domain fields are plain JSON
@@ -28,14 +29,16 @@ async function serializeMutation<T>(key: object, operation: () => Promise<T>): P
   }
 }
 
-const workspaceSync = t.middleware(async ({ ctx, type, next }) => {
+const workspaceSync = t.middleware(async ({ ctx, type, path, next }) => {
   const run = async () => {
     await ctx.workspace?.beforeRequest()
     const result = await next()
     if (type === 'mutation') await ctx.workspace?.afterMutation()
     return result
   }
-  return type === 'mutation' ? serializeMutation(ctx.db as object, run) : run()
+  return type === 'mutation'
+    ? withDatabaseWritePurpose(`mutation ${path}`, () => serializeMutation(ctx.db as object, run))
+    : run()
 })
 
 export const publicProcedure = t.procedure.use(workspaceSync)

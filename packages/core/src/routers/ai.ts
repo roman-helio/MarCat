@@ -31,11 +31,11 @@ import { router, publicProcedure } from '../trpc'
 import { syncBlockedStatus } from './tasks'
 import { taskDescriptionToMarkdown } from '../util/richText'
 import { channelKeyOf } from './creators'
-import type { AgentRunResult } from '../context'
+import type { AgentProviderStatus, AgentRunResult, AiProvider } from '../context'
 import { knowledgeContext, retrieveKnowledge } from '../knowledge/marketing'
 import { OFFICIAL_LINK_TYPES } from '../gameSemantics'
 import { ACTIVITY_CHANNELS, ACTIVITY_PLATFORMS, ACTIVITY_TYPES } from '../activitySemantics'
-import { hashDiscoveryProfile, type DiscoveryProfileSnapshot } from '../youtubeDiscovery'
+import { hashDiscoveryProfile, type DiscoveryPlatform, type DiscoveryProfileSnapshot } from '../youtubeDiscovery'
 import {
   PROJECT_CARD_INSIGHT_TITLE,
   projectCardGameId,
@@ -49,7 +49,8 @@ This project is wired to MarCat through an MCP server. Start with \`get_project_
 know the project key (for example \`{ "key": "SAS" }\`): this is the one-call project brief with
 owner-maintained context plus live MarCat state. If you do not know the key, call \`list_games\`
 first to get a gameId. Find tasks with \`search_tasks\`, load selected records with \`get_task\`,
-use \`list_tasks\` only when the complete catalogue is genuinely needed, and read \`list_tags\`, \`list_activities\`,
+use compact filtered pages from \`list_tasks\`, \`list_creators\`, \`list_activities\` and \`list_festivals\`,
+follow \`nextOffset\`, load selected full records with the matching \`get_*\` tool, and read \`list_tags\`,
 	\`list_insights\` (titles only), \`get_insight\` (full text), \`get_wishlist_series\` or change the plan (\`update_game\`, \`update_project_card\`, \`create_task\`,
 \`update_task\`, \`add_dependency\`, \`create_tag\`, \`assign_tag\`, \`create_activity\`, …).
 Use \`list_festivals\`, \`create_festival\`, \`update_festival\`, \`import_festivals\`,
@@ -71,11 +72,15 @@ notes before planning or analysis. Use \`create_insight\` or \`update_insight\` 
 hypothesis results; keep dated events and correspondence in the activity journal. Every project has
 a required \`Карточка проекта\` insight backed by the canonical project card. Fill it with
 \`update_insight\` or \`update_project_card\`; it cannot be renamed or deleted.
-For high-volume YouTube research use \`list_youtube_discovery_profiles\`,
-\`create_youtube_discovery_profile\`, \`start_youtube_discovery\`, \`list_youtube_discovery_runs\`
-and \`list_youtube_discovery_candidates\`. Every run writes to a staging artifact first; promote
-candidates explicitly with \`review_youtube_discovery_candidate\`. The desktop app, never MCP,
-owns the protected YouTube API key.
+For high-volume creator research use \`list_creator_discovery_profiles\`, \`create_creator_discovery_profile\`,
+\`start_creator_discovery\`, \`list_creator_discovery_runs\` and
+\`list_creator_discovery_candidates\`. One run automatically uses every connected source and writes
+to a staging artifact first; promote candidates explicitly with
+\`review_creator_discovery_candidate\`. The desktop app, never MCP, owns protected API keys.
+For large read-only joins, aggregates and diagnostics, a local agent with filesystem access may call
+\`get_readonly_database_access\`, open the returned SQLite URI with \`mode=ro\`, execute
+\`PRAGMA query_only=ON\`, and aggregate locally. Never use direct SQL for writes; all changes must go
+through MarCat tools so validation, idempotency and workspace synchronization run.
 `
 
 /** Write a ready .mcp.json (+ AGENTS.md) into a project folder so an external agent can use MarCat. */
@@ -286,7 +291,7 @@ async function buildContext(db: DB, gameId: string, knowledgeQuery = ''): Promis
           .join('\n')}`
       : '',
     discoveryProfiles.length
-      ? `YouTube discovery profiles (reuse profileId to start an existing deterministic search; create a new profile only for materially different inputs):\n${discoveryProfiles
+      ? `Creator discovery profiles (reuse profileId to start an existing deterministic multi-platform search; create a new profile only for materially different inputs):\n${discoveryProfiles
           .map((profile) => {
             const refs = discoveryReferences
               .filter((reference) => reference.profileId === profile.id)
@@ -295,7 +300,7 @@ async function buildContext(db: DB, gameId: string, knowledgeQuery = ''): Promis
             return `- profileId=${profile.id} "${profile.name}" [${profile.mode}] references: ${refs.join(', ')}${latestRun ? `; latest run ${latestRun.id}=${latestRun.status}` : ''}`
           })
           .join('\n')}`
-      : 'No YouTube discovery profiles exist yet. The agent may propose a creator_discovery_search change; the protected YouTube key must be configured by the user in the app.',
+      : 'No creator discovery profiles exist yet. The agent may propose a creator_discovery_search change; at least one protected discovery connector must be configured by the user in the app.',
     projectKey ? `Project key for MarCat task ids and DevHub lookup: ${projectKey}` : '',
     picked.length
       ? `Festivals this game is participating in (use entityId to ENRICH one after web research — fill organizer, description, applyUrl, applyDeadline, fee, steamEvent/steamFeature):\n${picked
@@ -396,7 +401,13 @@ function discoveryReferencesFromAgent(value: unknown) {
     .slice(0, 100)
 }
 
-async function queueAgentDiscoverySearch(db: DB, gameId: string, after: Record<string, unknown>): Promise<boolean> {
+async function queueAgentDiscoverySearch(
+  db: DB,
+  gameId: string,
+  after: Record<string, unknown>,
+  platforms: DiscoveryPlatform[],
+): Promise<boolean> {
+  if (!platforms.length) throw new Error('Connect YouTube or ScrapeCreators before starting creator discovery')
   let profile = str(after.profileId)
     ? (
         await db
@@ -466,6 +477,7 @@ async function queueAgentDiscoverySearch(db: DB, gameId: string, after: Record<s
     maxChannels: profile.maxChannels,
     recentVideoLimit: profile.recentVideoLimit,
     discoverContacts: profile.discoverContacts,
+    platforms,
     references: referenceRows.map((reference) => ({
       id: reference.id,
       label: reference.label,
@@ -497,7 +509,14 @@ async function queueAgentDiscoverySearch(db: DB, gameId: string, after: Record<s
   return true
 }
 
-async function applyChange(db: DB, gameId: string, entity: string, op: string, after: Record<string, unknown>) {
+async function applyChange(
+  db: DB,
+  gameId: string,
+  entity: string,
+  op: string,
+  after: Record<string, unknown>,
+  discoveryPlatforms: DiscoveryPlatform[],
+) {
   // Most proposals create. Existing catalogue records and journal entries may be edited by id.
   if (
     op !== 'create' &&
@@ -526,7 +545,7 @@ async function applyChange(db: DB, gameId: string, entity: string, op: string, a
     return true
   }
   if (entity === 'creator_discovery_search' && op === 'create') {
-    return queueAgentDiscoverySearch(db, gameId, after)
+    return queueAgentDiscoverySearch(db, gameId, after, discoveryPlatforms)
   }
   if (entity === 'insight') {
     const existingId = str(after.entityId) || str(after.id)
@@ -965,7 +984,7 @@ export const aiRouter = router({
         ({
           claude: { available: false, authenticated: false, authMode: 'none' },
           codex: { available: false, authenticated: false, authMode: 'none' },
-        } as const),
+        } as Record<AiProvider, AgentProviderStatus>),
       hasToken: !!ctx.secrets?.getClaudeToken(),
     }
   }),
@@ -978,6 +997,28 @@ export const aiRouter = router({
   setToken: publicProcedure.input(z.object({ token: z.string() })).mutation(({ ctx, input }) => {
     ctx.secrets?.setClaudeToken(input.token.trim() || null)
     return { ok: true }
+  }),
+
+  verifyAuth: publicProcedure
+    .input(z.object({ provider: z.enum(['claude', 'codex']) }))
+    .mutation(async ({ ctx, input }) => {
+      const checked = await ctx.agent?.verifyAuth?.(input.provider)
+      return checked ?? ({ available: false, authenticated: false, authMode: 'none' } satisfies AgentProviderStatus)
+    }),
+
+  loginClaude: publicProcedure.mutation(async ({ ctx }) => {
+    if (!ctx.agent?.loginAuth) throw new Error('Claude Code CLI is not available.')
+    await ctx.agent.loginAuth('claude')
+    // A successful native CLI login is preferable to a pasted token. Remove the
+    // old MarCat copy only after login succeeds so cancellation remains recoverable.
+    ctx.secrets?.setClaudeToken(null)
+    return (
+      ctx.agent.status?.().providers.claude ?? {
+        available: true,
+        authenticated: true,
+        authMode: 'subscription' as const,
+      }
+    )
   }),
 
   listRuns: publicProcedure.input(z.object({ gameId: z.string() })).query(async ({ ctx, input }) => {
@@ -1163,6 +1204,10 @@ export const aiRouter = router({
 
     await ctx.db.transaction(async (tx) => {
       const transactionDb = tx as unknown as DB
+      const discoveryPlatforms: DiscoveryPlatform[] = [
+        ...(ctx.secrets?.getApiKey('youtube') ? (['youtube'] as const) : []),
+        ...(ctx.secrets?.getApiKey('scrapecreators') ? (['instagram', 'tiktok', 'twitter'] as const) : []),
+      ]
       const setStatus = (id: string, ok: boolean) =>
         tx
           .update(aiProposalChanges)
@@ -1172,7 +1217,14 @@ export const aiRouter = router({
       // Pass 1 — create/update domain entities atomically.
       for (const change of databaseChanges) {
         if (change.entity === 'dependency') continue
-        const ok = await applyChange(transactionDb, run.gameId, change.entity, change.op, JSON.parse(change.afterJson))
+        const ok = await applyChange(
+          transactionDb,
+          run.gameId,
+          change.entity,
+          change.op,
+          JSON.parse(change.afterJson),
+          discoveryPlatforms,
+        )
         await setStatus(change.id, ok)
         if (ok) applied++
       }
@@ -1228,6 +1280,9 @@ export const aiRouter = router({
       }
       await syncBlockedStatus(transactionDb, run.gameId)
     })
+    if (databaseChanges.some((change) => change.entity === 'creator_discovery_search')) {
+      ctx.wakeCreatorDiscovery?.()
+    }
 
     // Filesystem work cannot participate in SQLite rollback. It stays pending
     // until the atomic DB phase commits, so a failed/retried apply is idempotent.

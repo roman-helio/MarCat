@@ -10,6 +10,7 @@ const mapping = z.object({
   date: z.string(),
   adds: z.string().optional(),
   deletes: z.string().optional(),
+  purchasesAndActivations: z.string().optional(),
   gifts: z.string().optional(),
   balance: z.string().optional(),
   net: z.string().optional(),
@@ -51,6 +52,7 @@ export const wishlistsRouter = router({
         date: z.string(),
         adds: z.number().int().nullish(),
         deletes: z.number().int().nullish(),
+        purchasesAndActivations: z.number().int().nullish(),
         gifts: z.number().int().nullish(),
         balance: z.number().int().nullish(),
         net: z.number().int().nullish(),
@@ -81,7 +83,13 @@ export const wishlistsRouter = router({
 
   importCsv: publicProcedure
     .input(
-      z.object({ gameId: z.string(), csv: z.string(), filename: z.string().optional(), mapping: mapping.optional() }),
+      z.object({
+        gameId: z.string(),
+        csv: z.string(),
+        filename: z.string().optional(),
+        fileModifiedAt: z.string().datetime().optional(),
+        mapping: mapping.optional(),
+      }),
     )
     .mutation(({ ctx, input }) => importWishlistCsv(ctx.db, input)),
 })

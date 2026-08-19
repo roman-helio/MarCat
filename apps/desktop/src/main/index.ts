@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
+import { app, BrowserWindow, crashReporter, dialog, ipcMain, Menu, shell } from 'electron'
 import fs from 'node:fs'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -7,6 +7,7 @@ import {
   appRouter,
   backfillTaskDescriptionMarkdown,
   DrizzleWorkspaceRepository,
+  MARCAT_MCP_HTTP_URL,
   MarkdownWorkspaceCoordinator,
   syncSteamFinancials,
   type AgentRunner,
@@ -28,10 +29,22 @@ import {
 import { eq } from 'drizzle-orm'
 import { claudeAvailable, codexAvailable, createAgentRunner } from './agent'
 import { createSecrets } from './secrets'
-import { setupFeedbackWorker, setupGmassWorker, setupSteamWatchers, setupYoutubeDiscoveryWorker } from './watchers'
+import {
+  setupCreatorPromotionWorker,
+  setupFeedbackWorker,
+  setupGmassWorker,
+  setupMcpHttpWorker,
+  setupSteamWatchers,
+  setupYoutubeDiscoveryWorker,
+} from './watchers'
 
 // Set the app name early so getPath('userData') resolves to %APPDATA%/MarCat.
 app.setName('MarCat')
+crashReporter.start({
+  productName: 'MarCat',
+  companyName: 'heliogames',
+  uploadToServer: false,
+})
 
 let db: DB | undefined
 let dbClient: ReturnType<typeof createDb>['client'] | undefined
@@ -41,9 +54,25 @@ let mainWindow: BrowserWindow | undefined
 let startupRecoveryMessage: string | undefined
 let activeDbPath: string | undefined
 let workspace: MarkdownWorkspaceCoordinator | undefined
+let youtubeDiscoveryWorker: ReturnType<typeof setupYoutubeDiscoveryWorker> | undefined
+let creatorPromotionWorker: ReturnType<typeof setupCreatorPromotionWorker> | undefined
+let mcpHttpWorker: ReturnType<typeof setupMcpHttpWorker> | undefined
 
 function formatError(error: unknown): string {
-  if (error instanceof Error) return error.stack || error.message
+  if (error instanceof Error) {
+    const formatted = [error.stack || error.message]
+    let cause = (error as Error & { cause?: unknown }).cause
+    for (let depth = 0; cause !== undefined && depth < 3; depth += 1) {
+      if (cause instanceof Error) {
+        formatted.push(`Caused by: ${cause.stack || cause.message}`)
+        cause = (cause as Error & { cause?: unknown }).cause
+      } else {
+        formatted.push(`Caused by: ${String(cause)}`)
+        break
+      }
+    }
+    return formatted.join('\n')
+  }
   return String(error)
 }
 
@@ -54,6 +83,54 @@ function appendStartupLog(message: string, error?: unknown): void {
     fs.appendFileSync(join(app.getPath('userData'), 'startup.log'), line)
   } catch {
     /* logging is best-effort */
+  }
+}
+
+appendStartupLog(
+  `Application starting: version=${app.getVersion()}, pid=${process.pid}, crashDumps=${app.getPath('crashDumps')}.`,
+)
+
+const RENDERER_LOG_MAX_BYTES = 2 * 1024 * 1024
+
+function diagnosticText(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value.replace(/\0/g, '').trim()
+  return normalized ? normalized.slice(0, maxLength) : undefined
+}
+
+/** Persist renderer failures as bounded JSONL so a restart never erases the useful stack. */
+function appendRendererLog(report: unknown, rendererUrl: string): void {
+  try {
+    const value = report && typeof report === 'object' ? (report as Record<string, unknown>) : {}
+    const userData = app.getPath('userData')
+    const logPath = join(userData, 'renderer.log')
+    const previousPath = `${logPath}.1`
+    fs.mkdirSync(userData, { recursive: true })
+    if (fs.existsSync(logPath) && fs.statSync(logPath).size >= RENDERER_LOG_MAX_BYTES) {
+      try {
+        fs.rmSync(previousPath, { force: true })
+        fs.renameSync(logPath, previousPath)
+      } catch {
+        // Keep appending if an external log viewer briefly holds the file on Windows.
+      }
+    }
+    const record = {
+      timestamp: new Date().toISOString(),
+      appVersion: app.getVersion(),
+      processId: process.pid,
+      kind: diagnosticText(value.kind, 80) ?? 'renderer-error',
+      message: diagnosticText(value.message, 8_000) ?? 'Unknown renderer error',
+      stack: diagnosticText(value.stack, 32_000),
+      componentStack: diagnosticText(value.componentStack, 32_000),
+      route: diagnosticText(value.route, 2_000),
+      title: diagnosticText(value.title, 500),
+      scope: diagnosticText(value.scope, 200),
+      taskId: diagnosticText(value.taskId, 200),
+      rendererUrl: diagnosticText(rendererUrl, 2_000),
+    }
+    fs.appendFileSync(logPath, `${JSON.stringify(record)}\n`, 'utf8')
+  } catch (error) {
+    appendStartupLog('Failed to persist renderer diagnostics.', error)
   }
 }
 
@@ -231,6 +308,42 @@ function migrationsFolder(): string {
     : join(app.getAppPath(), '..', '..', 'packages', 'db', 'migrations')
 }
 
+const YOUTUBE_STORAGE_MAINTENANCE_KEY = 'maintenance.youtube_storage_v1'
+
+/** Reclaim the pages released when legacy raw YouTube payloads are dropped. */
+async function compactMigratedYoutubeStorage(client: ReturnType<typeof createDb>['client']): Promise<void> {
+  const marker = await client.execute({
+    sql: 'SELECT value FROM settings WHERE key = ? LIMIT 1',
+    args: [YOUTUBE_STORAGE_MAINTENANCE_KEY],
+  })
+  if (marker.rows[0]?.value !== 'pending') return
+  try {
+    const pageSizeResult = await client.execute('PRAGMA page_size')
+    const pageCountResult = await client.execute('PRAGMA page_count')
+    const freeListResult = await client.execute('PRAGMA freelist_count')
+    const pageSize = Number(pageSizeResult.rows[0]?.page_size ?? 0)
+    const pageCount = Number(pageCountResult.rows[0]?.page_count ?? 0)
+    const freePages = Number(freeListResult.rows[0]?.freelist_count ?? 0)
+    const freeBytes = pageSize * freePages
+    appendStartupLog(
+      `YouTube storage migration released ${Math.round(freeBytes / 1_048_576)} MB across ${freePages}/${pageCount} pages`,
+    )
+    if (freeBytes >= 8 * 1_048_576) {
+      await checkpoint(client, 'TRUNCATE')
+      await client.execute('VACUUM')
+      appendStartupLog('YouTube storage migration compacted the database')
+    }
+    await client.execute({
+      sql: 'UPDATE settings SET value = ?, updated_at = ? WHERE key = ?',
+      args: ['completed', new Date().toISOString(), YOUTUBE_STORAGE_MAINTENANCE_KEY],
+    })
+  } catch (error) {
+    // The logical migration is already complete and freed pages remain reusable.
+    // Keep the marker pending so a later clean startup can retry compaction.
+    appendStartupLog('YouTube storage compaction deferred', error)
+  }
+}
+
 function iconPath(): string {
   // Sets the taskbar/window icon (works without rcedit/exe-editing).
   return app.isPackaged ? join(process.resourcesPath, 'icon.png') : join(app.getAppPath(), 'build', 'icon.png')
@@ -261,6 +374,7 @@ async function openPreparedDb(dbPath: string): Promise<ReturnType<typeof createD
     const folder = migrationsFolder()
     await backupBeforeMigrations(dbPath, created.db, created.client, folder)
     await runMigrations(created.db, created.client, folder)
+    await compactMigratedYoutubeStorage(created.client)
     const publicFestivals = JSON.parse(fs.readFileSync(publicFestivalSeedPath(), 'utf8')) as unknown
     await seedPublicFestivalCatalogue(created.client, publicFestivals)
     await backfillTaskKeys(created.db) // assign project keys + per-game task seq for pre-existing data
@@ -372,22 +486,65 @@ function createWindow(): BrowserWindow {
         appPaths: {
           dbPath: activeDbPath || defaultDatabasePath(),
           mcpServerPath: mcpServerPath(),
+          mcpUrl: MARCAT_MCP_HTTP_URL,
           appVersion: app.getVersion(),
           changelogPath: changelogPath(),
         },
+        wakeCreatorDiscovery: () => youtubeDiscoveryWorker?.wake(),
+        wakeCreatorPromotion: () => creatorPromotionWorker?.wake(),
       }
     },
   })
+
+  const rendererRecoveryAttempts: number[] = []
+  let rendererReloadTimer: NodeJS.Timeout | undefined
+  const scheduleRendererRecovery = (reason: string): void => {
+    const now = Date.now()
+    while (rendererRecoveryAttempts.length > 0 && now - rendererRecoveryAttempts[0]! > 60_000) {
+      rendererRecoveryAttempts.shift()
+    }
+    if (rendererRecoveryAttempts.length >= 3) {
+      appendStartupLog(`Renderer auto-recovery suppressed after repeated failures: ${reason}.`)
+      if (!win.isDestroyed() && !win.isVisible()) win.show()
+      return
+    }
+    rendererRecoveryAttempts.push(now)
+    if (rendererReloadTimer) clearTimeout(rendererReloadTimer)
+    rendererReloadTimer = setTimeout(() => {
+      rendererReloadTimer = undefined
+      if (win.isDestroyed() || win.webContents.isDestroyed()) return
+      appendStartupLog(`Reloading renderer after failure: ${reason}.`)
+      win.webContents.reload()
+    }, 300)
+  }
 
   win.on('ready-to-show', () => {
     win.show()
     win.focus()
   })
+  win.on('close', () => {
+    appendStartupLog('Main window close requested.')
+  })
   win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     appendStartupLog(`Renderer failed to load ${validatedURL}: ${errorCode} ${errorDescription}`)
     if (!win.isDestroyed() && !win.isVisible()) win.show()
   })
+  win.webContents.on('preload-error', (_event, preloadPath, error) => {
+    appendStartupLog(`Renderer preload failed: ${preloadPath}.`, error)
+  })
+  win.webContents.on('render-process-gone', (_event, details) => {
+    appendStartupLog(`Renderer process gone: reason=${details.reason}, exitCode=${details.exitCode}.`)
+    if (details.reason !== 'clean-exit') scheduleRendererRecovery(`${details.reason}/${details.exitCode}`)
+  })
+  win.webContents.on('unresponsive', () => {
+    appendStartupLog('Renderer became unresponsive.')
+  })
+  win.webContents.on('responsive', () => {
+    appendStartupLog('Renderer became responsive again.')
+  })
   win.on('closed', () => {
+    if (rendererReloadTimer) clearTimeout(rendererReloadTimer)
+    appendStartupLog('Main window closed.')
     if (mainWindow === win) mainWindow = undefined
   })
 
@@ -443,12 +600,25 @@ process.on('unhandledRejection', (error) => {
   appendStartupLog('Unhandled rejection.', error)
 })
 
+process.on('exit', (code) => {
+  appendStartupLog(`Main process exit event: code ${code}.`)
+})
+
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason === 'clean-exit') return
+  appendStartupLog(
+    `Child process gone: type=${details.type}, name=${details.name ?? 'unknown'}, reason=${details.reason}, exitCode=${details.exitCode}.`,
+  )
+})
+
 // Single-instance: a second launch focuses the existing window instead of
 // opening a duplicate (duplicate/stale windows steal focus and clicks).
 if (!app.requestSingleInstanceLock()) {
+  appendStartupLog('Exiting duplicate application instance.')
   app.quit()
 } else {
   app.on('second-instance', () => {
+    appendStartupLog('Second launch requested; focusing the existing window.')
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore()
       mainWindow.show()
@@ -460,8 +630,14 @@ if (!app.requestSingleInstanceLock()) {
   const isTrustedIpcSender = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean =>
     Boolean(mainWindow && !mainWindow.isDestroyed() && event.sender === mainWindow.webContents)
 
+  ipcMain.on('marcat:renderer-error', (event, report: unknown) => {
+    if (!isTrustedIpcSender(event)) return
+    appendRendererLog(report, event.sender.getURL())
+  })
+
   ipcMain.on('marcat:relaunch', (event) => {
     if (!isTrustedIpcSender(event)) return
+    appendStartupLog('Application relaunch requested from Settings.')
     app.relaunch()
     app.exit(0)
   })
@@ -551,6 +727,7 @@ if (!app.requestSingleInstanceLock()) {
             )
           : undefined
       createWindow()
+      mcpHttpWorker = setupMcpHttpWorker(activeDbPath ?? defaultDatabasePath(), mcpServerPath(), appendStartupLog)
       if (startupRecoveryMessage) {
         dialog
           .showMessageBox({
@@ -563,7 +740,19 @@ if (!app.requestSingleInstanceLock()) {
       }
       setupSteamWatchers(database, secrets)
       setupGmassWorker(database, secrets)
-      setupYoutubeDiscoveryWorker(database, secrets)
+      youtubeDiscoveryWorker = setupYoutubeDiscoveryWorker(
+        database,
+        activeDbPath ?? defaultDatabasePath(),
+        secrets,
+        workspace,
+        appendStartupLog,
+      )
+      creatorPromotionWorker = setupCreatorPromotionWorker(
+        database,
+        activeDbPath ?? defaultDatabasePath(),
+        workspace,
+        appendStartupLog,
+      )
       setupFeedbackWorker(database, secrets)
       const syncFinancials = () => {
         const key = secrets?.getApiKey('steamfinancial')
@@ -590,12 +779,18 @@ if (!app.requestSingleInstanceLock()) {
 
   // Final flush on quit so nothing is left stranded in the WAL.
   let shuttingDown = false
+  app.on('before-quit', () => {
+    appendStartupLog('Application quit requested.')
+  })
   app.on('will-quit', (e) => {
     if (shuttingDown || !dbClient) return
     shuttingDown = true
     e.preventDefault()
     void (async () => {
       agent?.cancelAll?.()
+      youtubeDiscoveryWorker?.stop()
+      creatorPromotionWorker?.stop()
+      mcpHttpWorker?.stop()
       await workspace?.stop()
       await checkpoint(dbClient, 'TRUNCATE')
       try {
@@ -608,6 +803,11 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.on('window-all-closed', () => {
+    appendStartupLog('All application windows closed.')
     if (process.platform !== 'darwin') app.quit()
+  })
+
+  app.on('quit', (_event, exitCode) => {
+    appendStartupLog(`Application exited with code ${exitCode}.`)
   })
 }

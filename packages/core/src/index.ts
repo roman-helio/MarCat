@@ -1,5 +1,6 @@
 export { appRouter, type AppRouter } from './routers'
 export { router, publicProcedure, middleware } from './trpc'
+export { MARCAT_MCP_HTTP_PORT, MARCAT_MCP_HTTP_URL } from './context'
 export type {
   Context,
   CreateContext,
@@ -10,6 +11,7 @@ export type {
   AgentAdviceResult,
   AgentProviderStatus,
   AgentRuntimeStatus,
+  AiAuthHealth,
   AiAuthMode,
   AiProvider,
   CompanionAdviceAction,
@@ -23,6 +25,20 @@ export { resolveWishlistBalance, type WishlistBalancePoint } from './wishlist'
 export { getSteamWishlistRank, parseSteamWishlistRows, type SteamWishlistRank } from './steamWishlistRank'
 export { parseCriticScoreHtml, summarizeSteamSalesRows, syncSteamFinancials } from './storefrontMetrics'
 export { computeImpact, type Classification, type EventImpact } from './analytics'
+export {
+  buildCampaignHighlights,
+  campaignKeyOf,
+  parseAnalyticsCsv,
+  summarizeUtm,
+  summarizeManagedCampaigns,
+  wilsonLowerBound,
+  type CampaignHighlight,
+  type CampaignDimensions,
+  type CampaignPerformance,
+  type ManagedCampaignPlan,
+  type ManagedCampaignTouchpoint,
+  type UtmMetricRow,
+} from './trafficAnalytics'
 export { backfillTaskDescriptionMarkdown } from './routers/tasks'
 export {
   ACTIVITY_CHANNELS,
@@ -40,14 +56,29 @@ export * from './workspace'
 export { processGmassQueue, GMASS_ADDRESS_CATEGORIES, type GmassAddressCategory } from './gmass'
 export {
   processYouTubeDiscoveryQueue,
+  recoverInterruptedDiscoveryRuns,
   expireYoutubeDiscoveryCache,
+  syncYouTubeDiscoveryArchives,
+  syncYouTubeDiscoveryRunArchive,
+  youtubeDiscoveryArchiveContent,
+  creatorDiscoveryProviderStatus,
+  youtubeDiscoveryRunIssue,
   YOUTUBE_DATA_DAILY_LIMIT,
   YOUTUBE_SEARCH_DAILY_LIMIT,
   type DiscoveryMode,
+  type DiscoveryPlatform,
   type DiscoveryProfileSnapshot,
   type DiscoveryReferenceSnapshot,
+  type DiscoveryRunIssue,
   type DiscoveryRunStatus,
+  type YouTubeDiscoveryArchiveSyncResult,
 } from './youtubeDiscovery'
+export {
+  cancelCreatorPromotion,
+  processCreatorPromotionQueue,
+  queueCreatorPromotion,
+  retryCreatorPromotion,
+} from './creatorPromotion'
 export {
   REVIEW_PLATFORMS,
   isReviewPlatform,

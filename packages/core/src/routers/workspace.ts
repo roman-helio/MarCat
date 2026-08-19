@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import type { MarkdownWorkspaceCoordinator } from '../workspace/coordinator'
+import { syncYouTubeDiscoveryArchives } from '../youtubeDiscovery'
 
 const game = z.object({ gameId: z.string().min(1) })
 const entityType = z.enum(['project', 'insight', 'task', 'tag', 'activity'])
@@ -24,7 +25,11 @@ export const workspaceRouter = router({
       const workspace = coordinator(ctx.workspace)
       const config = await workspace.configure({ ...input, enabled: true })
       const result = await workspace.enable(input.gameId)
-      return { config, result }
+      const discoveryArchive = await syncYouTubeDiscoveryArchives(ctx.db, workspace, input.gameId).catch(() => ({
+        runs: 0,
+        written: 0,
+      }))
+      return { config, result, discoveryArchive }
     }),
   disable: publicProcedure.input(game).mutation(async ({ ctx, input }) => {
     await coordinator(ctx.workspace).disable(input.gameId)

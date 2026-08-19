@@ -1,6 +1,6 @@
 {
   "name": "@marcat/mcp-server",
-  "version": "0.3.7",
+  "version": "0.3.12",
   "private": true,
   "type": "module",
   "bin": {
@@ -15,7 +15,10 @@
   "dependencies": {
     "@marcat/core": "*",
     "@marcat/db": "*",
-    "@modelcontextprotocol/sdk": "^1.12.0",
-    "zod": "^3.24.1"
+    "@modelcontextprotocol/server": "^2.0.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.0.0"
   }
 }

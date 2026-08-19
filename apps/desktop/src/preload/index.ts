@@ -13,5 +13,15 @@ process.once('loaded', () => {
       ipcRenderer.invoke('marcat:openLocalPath', path),
     showFileContextMenu: (request: { path: string | null; openLabel: string; missingLabel: string }) =>
       ipcRenderer.send('marcat:showFileContextMenu', request),
+    reportRendererError: (report: {
+      kind: string
+      message: string
+      stack?: string
+      componentStack?: string
+      route: string
+      title: string
+      scope?: string
+      taskId?: string
+    }) => ipcRenderer.send('marcat:renderer-error', report),
   })
 })

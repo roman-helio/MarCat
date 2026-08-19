@@ -66,6 +66,7 @@ export class MarkdownWorkspaceCoordinator {
   private readonly watchHandles = new Map<string, WorkspaceWatchHandle>()
   private readonly configuredGames = new Set<string>()
   private readonly dirtyGames = new Set<string>()
+  private readonly reportedErrors = new WeakSet<object>()
 
   constructor(
     private readonly repository: WorkspaceRepository,
@@ -74,6 +75,15 @@ export class MarkdownWorkspaceCoordinator {
     this.now = options.now ?? (() => new Date())
     this.watcherDebounceMs = options.watcherDebounceMs ?? 180
     this.onError = options.onError ?? (() => undefined)
+  }
+
+  /** One rejected shared reconciliation promise can have several observers; report its Error object once. */
+  private readonly reportError = (error: unknown): void => {
+    if (error && typeof error === 'object') {
+      if (this.reportedErrors.has(error)) return
+      this.reportedErrors.add(error)
+    }
+    this.onError(error)
   }
 
   async configure(input: WorkspaceConfigInput): Promise<WorkspaceConfigRecord> {
@@ -107,7 +117,7 @@ export class MarkdownWorkspaceCoordinator {
         if ((await this.repository.listFiles(config.gameId)).length === 0) await this.exportAll(config.gameId)
         this.watchHandles.set(config.gameId, await this.watch(config.gameId))
       } catch (error) {
-        this.onError(error)
+        this.reportError(error)
       }
     }
   }
@@ -146,7 +156,7 @@ export class MarkdownWorkspaceCoordinator {
   async beforeRequest(): Promise<void> {
     const dirty = [...this.dirtyGames]
     this.dirtyGames.clear()
-    await Promise.all(dirty.map((gameId) => this.reconcile(gameId).catch(this.onError)))
+    await Promise.all(dirty.map((gameId) => this.reconcile(gameId).catch(this.reportError)))
   }
 
   /** Durable triggers already queued changes; request callers wait only for pending file writes. */
@@ -159,7 +169,7 @@ export class MarkdownWorkspaceCoordinator {
           await this.drainOutbox(gameId)
           if (!(await this.repository.gameExists(gameId))) await this.disable(gameId)
         } catch (error) {
-          this.onError(error)
+          this.reportError(error)
         }
       }),
     )
@@ -180,6 +190,34 @@ export class MarkdownWorkspaceCoordinator {
 
   async listConfigs(): Promise<WorkspaceConfigRecord[]> {
     return this.repository.listConfigs()
+  }
+
+  /** Stable, human-accessible folder for immutable creator-discovery run artifacts. */
+  async discoveryArchiveLocation(gameId: string): Promise<string> {
+    const { root } = await this.workspaceRoot(gameId)
+    const archive = await ensureSafeWorkspaceRoot(resolveContained(root, 'Discovery/Creators'))
+    // Re-prove containment after realpath in case an existing folder was replaced with a symlink.
+    resolveContained(root, relative(root, archive) || '.')
+    return archive
+  }
+
+  /** Write one deterministic discovery artifact without touching unchanged files. */
+  async writeDiscoveryArchive(
+    gameId: string,
+    runId: string,
+    content: string,
+  ): Promise<{ path: string; changed: boolean }> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(runId)) throw new Error('Invalid discovery run id')
+    const { root } = await this.workspaceRoot(gameId)
+    const relativePath = `Discovery/Creators/${runId}.json`
+    if (await fileExists(root, relativePath)) {
+      const current = await readWorkspaceFile(root, relativePath)
+      if (current.hash === hashContent(content)) {
+        return { path: resolveContained(root, relativePath), changed: false }
+      }
+    }
+    await atomicWriteWorkspaceFile(root, relativePath, content)
+    return { path: resolveContained(root, relativePath), changed: true }
   }
 
   async listIssues(gameId: string, includeResolved = false) {
@@ -613,7 +651,7 @@ export class MarkdownWorkspaceCoordinator {
             error instanceof Error ? error.message : String(error),
             item.attempts,
           )
-          this.onError(error)
+          this.reportError(error)
         }
       }
     }
@@ -630,7 +668,7 @@ export class MarkdownWorkspaceCoordinator {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => {
         timer = undefined
-        void this.reconcile(gameId).catch(this.onError)
+        void this.reconcile(gameId).catch(this.reportError)
       }, this.watcherDebounceMs)
     }
     const watcher: FSWatcher = chokidar.watch(root, {
@@ -651,7 +689,7 @@ export class MarkdownWorkspaceCoordinator {
       .on('unlink', schedule)
       .on('addDir', schedule)
       .on('unlinkDir', schedule)
-    watcher.on('error', this.onError)
+    watcher.on('error', this.reportError)
     return {
       close: async () => {
         closed = true

@@ -273,10 +273,20 @@ async function syncWishlistReporting(db: DB, apiKey: string, configuredGames: { 
       balance += net
       await db
         .insert(wishlistPoints)
-        .values({ gameId: game.id, date, adds, deletes, gifts, net, balance, source: 'api' })
+        .values({
+          gameId: game.id,
+          date,
+          adds,
+          deletes,
+          purchasesAndActivations: purchases,
+          gifts,
+          net,
+          balance,
+          source: 'api',
+        })
         .onConflictDoUpdate({
           target: [wishlistPoints.gameId, wishlistPoints.date],
-          set: { adds, deletes, gifts, net, balance, source: 'api' },
+          set: { adds, deletes, purchasesAndActivations: purchases, gifts, net, balance, source: 'api' },
         })
     }
   }

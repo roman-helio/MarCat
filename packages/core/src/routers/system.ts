@@ -8,8 +8,14 @@ import { router, publicProcedure } from '../trpc'
 
 const backupsDir = (dbPath: string) => join(dirname(dbPath), 'backups')
 
-/** Does either supported agent CLI register a DevHub MCP server? */
-function detectDevhub(): { connected: boolean; serverName: string | null; client: 'claude' | 'codex' | null } {
+type McpConnectionStatus = {
+  connected: boolean
+  serverName: string | null
+  client: 'claude' | 'codex' | null
+}
+
+/** Does either supported agent CLI register an MCP server matching this integration? */
+function detectMcpServer(pattern: RegExp): McpConnectionStatus {
   try {
     const file = join(os.homedir(), '.claude.json')
     if (fs.existsSync(file)) {
@@ -18,7 +24,7 @@ function detectDevhub(): { connected: boolean; serverName: string | null; client
         const scan = (servers: unknown): string | null => {
           if (!servers || typeof servers !== 'object') return null
           for (const [k, v] of Object.entries(servers as Record<string, unknown>)) {
-            if (/devhub/i.test(k) || /devhub/i.test(JSON.stringify(v ?? ''))) return k
+            if (pattern.test(k) || pattern.test(JSON.stringify(v ?? ''))) return k
           }
           return null
         }
@@ -43,8 +49,8 @@ function detectDevhub(): { connected: boolean; serverName: string | null; client
         const name = (match[1] ?? match[2] ?? '').trim()
         const start = (match.index ?? 0) + match[0].length
         const end = sections[index + 1]?.index ?? toml.length
-        if (/devhub/i.test(name) || /devhub/i.test(toml.slice(start, end))) {
-          return { connected: true, serverName: name || 'devhub', client: 'codex' }
+        if (pattern.test(name) || pattern.test(toml.slice(start, end))) {
+          return { connected: true, serverName: name || null, client: 'codex' }
         }
       }
     }
@@ -69,9 +75,12 @@ export const systemRouter = router({
   mcpInfo: publicProcedure.query(({ ctx }) => ({
     dbPath: ctx.appPaths?.dbPath ?? '',
     serverPath: ctx.appPaths?.mcpServerPath ?? '',
+    url: ctx.appPaths?.mcpUrl ?? '',
   })),
 
-  devhubStatus: publicProcedure.query(() => detectDevhub()),
+  devhubStatus: publicProcedure.query(() => detectMcpServer(/devhub/i)),
+
+  atlassianStatus: publicProcedure.query(() => detectMcpServer(/atlassian|mcp\.atlassian\.com/i)),
 
   /** Changes when another SQLite connection (for example MCP) commits. */
   dataVersion: publicProcedure.query(async ({ ctx }) => {

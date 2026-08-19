@@ -71,7 +71,7 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
     paid: true,
     needsKey: true,
     provider: 'scrapecreators',
-    costPerRequest: 0.02,
+    costPerRequest: 47 / 25_000,
     label: 'Instagram',
   },
   tiktok: {
@@ -79,7 +79,7 @@ export const PLATFORMS: Record<Platform, PlatformInfo> = {
     paid: true,
     needsKey: true,
     provider: 'scrapecreators',
-    costPerRequest: 0.02,
+    costPerRequest: 47 / 25_000,
     label: 'TikTok',
   },
   steam_reviews: {

@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, type InferInsertModel } from 'drizzle-orm'
+import { and, asc, desc, eq, inArray, or, sql, type InferInsertModel, type SQL } from 'drizzle-orm'
 import {
   creators,
   creatorPicks,
@@ -44,6 +44,7 @@ export function channelKeyOf(url: string | null | undefined): string | null {
 
 const fields = {
   name: z.string().min(1),
+  entityType: z.enum(['person', 'media']).optional(),
   handle: z.string().nullish(),
   kind: z.string().nullish(),
   primaryPlatform: z.string().nullish(),
@@ -75,6 +76,140 @@ const fields = {
 }
 const item = z.object(fields)
 const patch = z.object(fields).partial().extend({ id: z.string() })
+
+const creatorSearchInput = z
+  .object({
+    query: z.string().trim().min(1).max(200).optional(),
+    gameId: z.string().optional(),
+    pickedOnly: z.boolean().default(false),
+    statuses: z.array(z.enum(PIPELINE_STAGES)).min(1).max(PIPELINE_STAGES.length).optional(),
+    platforms: z.array(z.string().trim().min(1).max(80)).min(1).max(20).optional(),
+    languages: z.array(z.string().trim().min(1).max(80)).min(1).max(20).optional(),
+    hasContact: z.boolean().optional(),
+    hasBusinessEmail: z.boolean().optional(),
+    doNotContact: z.boolean().optional(),
+    sort: z.enum(['name', 'audience', 'avgViews', 'lastActiveAt', 'costUsd', 'updatedAt']).default('name'),
+    direction: z.enum(['asc', 'desc']).optional(),
+    limit: z.number().int().min(1).max(100).default(20),
+    offset: z.number().int().min(0).default(0),
+  })
+  .superRefine((input, ctx) => {
+    if ((input.pickedOnly || input.statuses?.length) && !input.gameId) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'gameId is required for project pipeline filters' })
+    }
+  })
+
+type StoredContact = {
+  type?: unknown
+  value?: unknown
+  verified?: unknown
+  gated?: unknown
+}
+
+type StoredChannel = {
+  platform?: unknown
+  url?: unknown
+  handle?: unknown
+  subscribers?: unknown
+  avgViews?: unknown
+}
+
+function parseJsonArray<T>(raw: string | null): T[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? (parsed as T[]) : []
+  } catch {
+    return []
+  }
+}
+
+function compactString(value: unknown, maxLength: number): string | null {
+  return typeof value === 'string' ? value.slice(0, maxLength) : null
+}
+
+function creatorSummary(
+  creator: typeof creators.$inferSelect,
+  pick:
+    | {
+        pipelineStatus: string
+        closedReason: string | null
+        agreedCostUsd: number | null
+        keysSentJson: string | null
+        pinned: boolean
+        addedBy: string
+      }
+    | undefined,
+) {
+  const contacts = parseJsonArray<StoredContact>(creator.contactsJson)
+    .filter((contact) => typeof contact.type === 'string' && typeof contact.value === 'string')
+    .map((contact) => ({
+      type: String(contact.type).slice(0, 80),
+      value: String(contact.value).slice(0, 500),
+      verified: contact.verified === true,
+      gated: contact.gated === true,
+    }))
+  const preferredContact = [...contacts].sort(
+    (left, right) =>
+      Number(['business_email', 'email'].includes(right.type)) -
+        Number(['business_email', 'email'].includes(left.type)) ||
+      Number(right.verified) - Number(left.verified) ||
+      Number(left.gated) - Number(right.gated),
+  )[0]
+  const channels = parseJsonArray<StoredChannel>(creator.channelsJson)
+    .filter((channel) => typeof channel.url === 'string')
+    .slice(0, 3)
+    .map((channel) => ({
+      platform: compactString(channel.platform, 80),
+      url: String(channel.url).slice(0, 500),
+      handle: compactString(channel.handle, 160),
+      subscribers: typeof channel.subscribers === 'number' ? channel.subscribers : null,
+      avgViews: typeof channel.avgViews === 'number' ? channel.avgViews : null,
+    }))
+  return {
+    id: creator.id,
+    name: creator.name.slice(0, 300),
+    entityType: creator.entityType,
+    handle: compactString(creator.handle, 160),
+    kind: compactString(creator.kind, 80),
+    primaryPlatform: compactString(creator.primaryPlatform, 80),
+    audience: creator.audience,
+    avgViews: creator.avgViews,
+    engagementRate: creator.engagementRate,
+    lastActiveAt: creator.lastActiveAt,
+    cadencePerMonth: creator.cadencePerMonth,
+    language: compactString(creator.language, 80),
+    region: compactString(creator.region, 120),
+    topics: parseJsonArray<unknown>(creator.topicsJson)
+      .map((topic) => compactString(topic, 160))
+      .filter((topic): topic is string => topic !== null)
+      .slice(0, 8),
+    playedGames: parseJsonArray<unknown>(creator.playedGamesJson)
+      .map((game) => compactString(game, 160))
+      .filter((game): game is string => game !== null)
+      .slice(0, 8),
+    channelCount: parseJsonArray<StoredChannel>(creator.channelsJson).length,
+    channels,
+    contactCount: contacts.length,
+    contactTypes: [...new Set(contacts.map((contact) => contact.type))].slice(0, 10),
+    preferredContact: preferredContact ?? null,
+    costUsd: creator.costUsd,
+    acceptsKeysOnly: creator.acceptsKeysOnly,
+    doNotContact: creator.doNotContact,
+    source: creator.source,
+    updatedAt: creator.updatedAt,
+    pipelineStatus: pick?.pipelineStatus ?? null,
+    closedReason: pick?.closedReason ?? null,
+    agreedCostUsd: pick?.agreedCostUsd ?? null,
+    keysSent: parseJsonArray<unknown>(pick?.keysSentJson ?? null)
+      .map((key) => compactString(key, 100))
+      .filter((key): key is string => key !== null)
+      .slice(0, 50),
+    keyCount: parseJsonArray<unknown>(pick?.keysSentJson ?? null).length,
+    pinned: pick?.pinned ?? false,
+    addedBy: pick?.addedBy ?? null,
+  }
+}
 
 const creatorTouchInput = z.object({
   gameId: z.string(),
@@ -231,6 +366,155 @@ export function crmTagName(creator: { name: string }): string {
 export const creatorsRouter = router({
   /** Global catalogue of creators (shared by all games). */
   list: publicProcedure.query(({ ctx }) => ctx.db.select().from(creators).orderBy(asc(creators.name))),
+
+  /** Compact, paginated server-side catalogue search for agents and large datasets. */
+  search: publicProcedure.input(creatorSearchInput).query(async ({ ctx, input }) => {
+    const conditions: SQL[] = []
+    const query = input.query?.trim()
+    if (query) {
+      const forms = [
+        ...new Set([
+          query,
+          query.toLocaleLowerCase(),
+          query.toLocaleUpperCase(),
+          `${query.slice(0, 1).toLocaleUpperCase()}${query.slice(1).toLocaleLowerCase()}`,
+        ]),
+      ]
+      const searchable = [
+        creators.name,
+        creators.handle,
+        creators.channelKey,
+        creators.primaryPlatform,
+        creators.language,
+        creators.region,
+        creators.topicsJson,
+        creators.playedGamesJson,
+        creators.contactsJson,
+        creators.channelsJson,
+        creators.description,
+        creators.notes,
+      ]
+      conditions.push(
+        or(...forms.flatMap((form) => searchable.map((column) => sql`instr(coalesce(${column}, ''), ${form}) > 0`)))!,
+      )
+    }
+    if (input.platforms?.length) {
+      conditions.push(
+        or(
+          inArray(creators.primaryPlatform, input.platforms),
+          ...input.platforms.map(
+            (platform) => sql`instr(lower(coalesce(${creators.channelsJson}, '')), ${platform.toLowerCase()}) > 0`,
+          ),
+        )!,
+      )
+    }
+    if (input.languages?.length) conditions.push(inArray(creators.language, input.languages))
+    if (input.hasContact !== undefined) {
+      conditions.push(
+        input.hasContact
+          ? sql`coalesce(${creators.contactsJson}, '[]') NOT IN ('', '[]')`
+          : sql`coalesce(${creators.contactsJson}, '[]') IN ('', '[]')`,
+      )
+    }
+    if (input.hasBusinessEmail !== undefined) {
+      const hasBusinessEmail = sql`(
+        instr(lower(coalesce(${creators.contactsJson}, '')), 'business_email') > 0
+        OR instr(lower(coalesce(${creators.contactsJson}, '')), '"type":"email"') > 0
+        OR instr(lower(coalesce(${creators.contactsJson}, '')), '"type": "email"') > 0
+      )`
+      conditions.push(input.hasBusinessEmail ? hasBusinessEmail : sql`NOT ${hasBusinessEmail}`)
+    }
+    if (input.doNotContact !== undefined) conditions.push(eq(creators.doNotContact, input.doNotContact))
+    if (input.gameId && (input.pickedOnly || input.statuses?.length)) {
+      const statusFilter = input.statuses?.length
+        ? sql`AND cp.pipeline_status IN (${sql.join(
+            input.statuses.map((status) => sql`${status}`),
+            sql`, `,
+          )})`
+        : sql``
+      conditions.push(sql`EXISTS (
+        SELECT 1 FROM creator_picks cp
+        WHERE cp.creator_id = ${creators.id}
+          AND cp.game_id = ${input.gameId}
+          ${statusFilter}
+      )`)
+    }
+    const where = conditions.length ? and(...conditions) : undefined
+
+    let countQuery = ctx.db
+      .select({ value: sql<number>`count(*)` })
+      .from(creators)
+      .$dynamic()
+    let rowsQuery = ctx.db.select().from(creators).$dynamic()
+    if (where) {
+      countQuery = countQuery.where(where)
+      rowsQuery = rowsQuery.where(where)
+    }
+
+    const sortColumn =
+      input.sort === 'audience'
+        ? creators.audience
+        : input.sort === 'avgViews'
+          ? creators.avgViews
+          : input.sort === 'lastActiveAt'
+            ? creators.lastActiveAt
+            : input.sort === 'costUsd'
+              ? creators.costUsd
+              : input.sort === 'updatedAt'
+                ? creators.updatedAt
+                : creators.name
+    const direction = input.direction ?? (input.sort === 'name' ? 'asc' : 'desc')
+    const rows = await rowsQuery
+      .orderBy(direction === 'asc' ? asc(sortColumn) : desc(sortColumn), asc(creators.name), asc(creators.id))
+      .limit(input.limit)
+      .offset(input.offset)
+    const countRows = await countQuery
+    const totalCount = Number(countRows[0]?.value ?? 0)
+
+    const pickByCreator = new Map<
+      string,
+      {
+        pipelineStatus: string
+        closedReason: string | null
+        agreedCostUsd: number | null
+        keysSentJson: string | null
+        pinned: boolean
+        addedBy: string
+      }
+    >()
+    if (input.gameId && rows.length) {
+      const picks = await ctx.db
+        .select({
+          creatorId: creatorPicks.creatorId,
+          pipelineStatus: creatorPicks.pipelineStatus,
+          closedReason: creatorPicks.closedReason,
+          agreedCostUsd: creatorPicks.agreedCostUsd,
+          keysSentJson: creatorPicks.keysSentJson,
+          pinned: creatorPicks.pinned,
+          addedBy: creatorPicks.addedBy,
+        })
+        .from(creatorPicks)
+        .where(
+          and(
+            eq(creatorPicks.gameId, input.gameId),
+            inArray(
+              creatorPicks.creatorId,
+              rows.map((row) => row.id),
+            ),
+          ),
+        )
+      for (const pick of picks) pickByCreator.set(pick.creatorId, pick)
+    }
+
+    const nextOffset = input.offset + rows.length
+    return {
+      totalCount,
+      offset: input.offset,
+      limit: input.limit,
+      nextOffset: nextOffset < totalCount ? nextOffset : null,
+      items: rows.map((creator) => creatorSummary(creator, pickByCreator.get(creator.id))),
+    }
+  }),
 
   get: publicProcedure.input(z.object({ id: z.string() })).query(async ({ ctx, input }) => {
     const rows = await ctx.db.select().from(creators).where(eq(creators.id, input.id))
@@ -423,7 +707,10 @@ export const creatorsRouter = router({
       const { impacts } = computeImpact(evs, pts)
       const liftByEvent = new Map(
         impacts
-          .filter((impact) => impact.lift != null && impact.classification !== 'ambiguous')
+          .filter(
+            (impact) =>
+              impact.lift != null && !['joint_effect', 'pending', 'insufficient'].includes(impact.classification),
+          )
           .map((impact) => [impact.eventId, impact.lift!]),
       )
       const pastByCreator = new Map<string, { total: number; count: number }>()
