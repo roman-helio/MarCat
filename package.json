@@ -1,7 +1,7 @@
 {
   "name": "marcat",
   "private": true,
-  "version": "0.3.12",
+  "version": "0.3.13",
   "description": "Local-first Windows marketing workspace for indie-game teams: Steam analytics, multi-platform creator discovery, outreach CRM, and an AI copilot.",
   "workspaces": [
     "packages/*",
