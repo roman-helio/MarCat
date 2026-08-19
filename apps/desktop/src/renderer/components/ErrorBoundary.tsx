@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { reportRendererError } from '@/lib/diagnostics'
 
 export class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
   state: { error: Error | null } = { error: null }
@@ -8,6 +9,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    reportRendererError('react-boundary', error, { componentStack: info.componentStack ?? undefined, scope: 'app' })
     console.error('Renderer crashed', error, info.componentStack)
   }
 

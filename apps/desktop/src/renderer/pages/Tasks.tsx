@@ -19,12 +19,13 @@ import {
 } from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { cn, fieldCls } from '@/lib/utils'
-import { useUi } from '@/store/ui'
+import { useUi, type SectionViewStateValue } from '@/store/ui'
 import { useCompanion } from '@/store/companion'
 import { confirm } from '@/store/confirm'
 import { toast } from '@/store/toast'
 import { Button } from '@/components/ui/Button'
 import { Segmented } from '@/components/ui/Toggle'
+import { PageHeader, Toolbar } from '@/components/ui/Screen'
 import { TaskListView } from '@/components/tasks/TaskListView'
 import { TaskBoard } from '@/components/tasks/TaskBoard'
 import { TaskGraph } from '@/components/tasks/TaskGraph'
@@ -59,24 +60,44 @@ const defaultPreferences: TaskViewPreferences = {
   collapsedDependencyIds: [],
 }
 
-function readPreferences(gameId?: string): TaskViewPreferences {
+function readPreferences(
+  gameId?: string,
+  storedView?: Record<string, SectionViewStateValue>,
+): TaskViewPreferences {
   if (!gameId) return defaultPreferences
+  let legacy: Partial<TaskViewPreferences> = {}
   try {
-    const stored = JSON.parse(
-      localStorage.getItem(`marcat:task-view:${gameId}`) ?? '{}',
-    ) as Partial<TaskViewPreferences>
-    return {
-      ...defaultPreferences,
-      ...stored,
-      view: ['list', 'board', 'graph', 'calendar'].includes(stored.view ?? '')
-        ? (stored.view as TaskView)
-        : defaultPreferences.view,
-      collapsedDependencyIds: Array.isArray(stored.collapsedDependencyIds)
-        ? stored.collapsedDependencyIds.filter((id): id is string => typeof id === 'string')
-        : [],
-    }
+    legacy = JSON.parse(localStorage.getItem(`marcat:task-view:${gameId}`) ?? '{}') as Partial<TaskViewPreferences>
   } catch {
-    return defaultPreferences
+    // An invalid legacy value is ignored; the shared UI store remains authoritative.
+  }
+  const source = storedView && Object.keys(storedView).length > 0 ? storedView : legacy
+  let collapsedDependencyIds: string[] = []
+  const collapsed = source.collapsedDependencyIds
+  if (Array.isArray(collapsed)) {
+    collapsedDependencyIds = collapsed.filter((id): id is string => typeof id === 'string')
+  } else if (typeof collapsed === 'string') {
+    try {
+      const parsed = JSON.parse(collapsed) as unknown
+      if (Array.isArray(parsed)) collapsedDependencyIds = parsed.filter((id): id is string => typeof id === 'string')
+    } catch {
+      // Keep the panel list empty if persisted JSON was truncated.
+    }
+  }
+  return {
+    view: ['list', 'board', 'graph', 'calendar'].includes(typeof source.view === 'string' ? source.view : '')
+      ? (source.view as TaskView)
+      : defaultPreferences.view,
+    query: typeof source.query === 'string' ? source.query : defaultPreferences.query,
+    sortKey: ['manual', 'key', 'title', 'status', 'priority', 'tags', 'startDate', 'dueDate', 'createdAt', 'updatedAt'].includes(
+      typeof source.sortKey === 'string' ? source.sortKey : '',
+    )
+      ? (source.sortKey as TaskSortKey)
+      : defaultPreferences.sortKey,
+    sortDirection: source.sortDirection === 'desc' ? 'desc' : 'asc',
+    hideCompleted: typeof source.hideCompleted === 'boolean' ? source.hideCompleted : defaultPreferences.hideCompleted,
+    activeTag: typeof source.activeTag === 'string' ? source.activeTag || null : null,
+    collapsedDependencyIds,
   }
 }
 
@@ -85,9 +106,11 @@ export function Tasks() {
   const { gameId } = useParams<{ gameId: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const setCurrentGame = useUi((s) => s.setCurrentGame)
+  const setSectionViewState = useUi((s) => s.setSectionViewState)
   const react = useCompanion((s) => s.react)
   const qc = useQueryClient()
-  const initialPreferences = useRef(readPreferences(gameId))
+  const sectionKey = `tasks:${gameId ?? ''}`
+  const initialPreferences = useRef(readPreferences(gameId, useUi.getState().sectionViewStates?.[sectionKey]))
   const [view, setView] = useState<TaskView>(initialPreferences.current.view)
   const [query, setQuery] = useState(initialPreferences.current.query)
   const [sortKey, setSortKey] = useState<TaskSortKey>(initialPreferences.current.sortKey)
@@ -108,7 +131,8 @@ export function Tasks() {
   const skipPreferenceWrite = useRef(true)
 
   useEffect(() => {
-    const stored = readPreferences(gameId)
+    const nextSectionKey = `tasks:${gameId ?? ''}`
+    const stored = readPreferences(gameId, useUi.getState().sectionViewStates?.[nextSectionKey])
     skipPreferenceWrite.current = true
     setView(stored.view)
     setQuery(stored.query)
@@ -134,8 +158,16 @@ export function Tasks() {
       activeTag,
       collapsedDependencyIds: [...collapsedDependencyIds],
     }
-    localStorage.setItem(`marcat:task-view:${gameId}`, JSON.stringify(preferences))
-  }, [activeTag, collapsedDependencyIds, gameId, hideCompleted, query, sortDirection, sortKey, view])
+    setSectionViewState(sectionKey, {
+      view: preferences.view,
+      query: preferences.query,
+      sortKey: preferences.sortKey,
+      sortDirection: preferences.sortDirection,
+      hideCompleted: preferences.hideCompleted,
+      activeTag: preferences.activeTag,
+      collapsedDependencyIds: JSON.stringify(preferences.collapsedDependencyIds),
+    })
+  }, [activeTag, collapsedDependencyIds, gameId, hideCompleted, query, sectionKey, setSectionViewState, sortDirection, sortKey, view])
 
   useEffect(() => {
     if (gameId) setCurrentGame(gameId)
@@ -318,125 +350,136 @@ export function Tasks() {
   }
 
   return (
-    <div className="enter-stagger space-y-3">
-      <div className="flex flex-wrap items-center gap-2 rounded-[12px] bg-surface p-2 shadow-hard">
-        <h1 className="t-title px-1">{t('tasks.title')}</h1>
-        <div className="relative min-w-52 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={t('tasks.searchPlaceholder')}
-            aria-label={t('common.search')}
-            className={cn(fieldCls, 'bg-surface-2/50 pl-9 pr-9')}
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              className="tap absolute right-0 top-0 inline-flex h-10 w-10 items-center justify-center rounded-[var(--radius)] text-muted hover:text-text"
-              aria-label={t('common.clear')}
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-        <div className="flex h-10 shrink-0 items-center rounded-[10px] bg-surface-2/70 p-0.5 shadow-hard">
-          <label
-            className={cn(
-              'tap inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[8px] text-muted hover:bg-surface hover:text-text',
-              hideCompleted && 'bg-surface text-accent shadow-hard',
-            )}
-            title={t('tasks.hideCompleted')}
-          >
-            <input
-              type="checkbox"
-              checked={hideCompleted}
-              onChange={(event) => setHideCompleted(event.target.checked)}
-              className="sr-only"
-            />
-            {hideCompleted ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            <span className="sr-only">{t('tasks.hideCompleted')}</span>
-          </label>
-          {view === 'list' && (
-            <button
-              type="button"
-              onClick={() => setCollapsedDependencyIds(dependenciesCollapsed ? new Set() : dependencyParentIds)}
-              className={cn(
-                'tap inline-flex h-9 w-9 items-center justify-center rounded-[8px] text-muted hover:bg-surface hover:text-text',
-                dependenciesCollapsed && 'bg-surface text-accent shadow-hard',
-              )}
-              title={dependenciesCollapsed ? t('tasks.expandAllDependencies') : t('tasks.collapseAllDependencies')}
-              aria-label={dependenciesCollapsed ? t('tasks.expandAllDependencies') : t('tasks.collapseAllDependencies')}
-              aria-pressed={dependenciesCollapsed}
-            >
-              <span className="relative h-4 w-4" aria-hidden>
-                <Maximize2
-                  className={cn(
-                    'absolute inset-0 h-4 w-4 transition-[opacity,filter,scale] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)]',
-                    dependenciesCollapsed ? 'scale-100 opacity-100 blur-0' : 'scale-[0.25] opacity-0 blur-[4px]',
-                  )}
-                />
-                <Minimize2
-                  className={cn(
-                    'absolute inset-0 h-4 w-4 transition-[opacity,filter,scale] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)]',
-                    dependenciesCollapsed ? 'scale-[0.25] opacity-0 blur-[4px]' : 'scale-100 opacity-100 blur-0',
-                  )}
-                />
-              </span>
-            </button>
-          )}
-        </div>
-        <Segmented
-          ariaLabel={t('tasks.title')}
-          value={view}
-          onChange={setView}
-          items={[
-            { value: 'list', icon: <LayoutList className="h-4 w-4" />, title: t('tasks.viewList') },
-            { value: 'board', icon: <KanbanSquare className="h-4 w-4" />, title: t('tasks.viewBoard') },
-            { value: 'graph', icon: <Network className="h-4 w-4" />, title: t('tasks.viewGraph') },
-            { value: 'calendar', icon: <CalendarDays className="h-4 w-4" />, title: t('nav.calendar') },
-          ]}
-        />
-        {view === 'board' && (
-          <div className="flex items-center gap-1">
-            <select
-              value={sortKey}
-              onChange={(event) => setSortKey(event.target.value as TaskSortKey)}
-              className={cn(fieldCls, 'w-36')}
-              aria-label={t('tasks.sort')}
-            >
-              <option value="manual">{t('tasks.sortManual')}</option>
-              <option value="key">{t('tasks.sortKey')}</option>
-              <option value="title">{t('tasks.sortTitle')}</option>
-              <option value="status">{t('task.status')}</option>
-              <option value="priority">{t('task.priority')}</option>
-              <option value="tags">{t('task.tags')}</option>
-              <option value="startDate">{t('task.start')}</option>
-              <option value="dueDate">{t('task.due')}</option>
-              <option value="createdAt">{t('tasks.sortCreated')}</option>
-              <option value="updatedAt">{t('tasks.sortUpdated')}</option>
-            </select>
-            <button
-              type="button"
-              onClick={() => setSortDirection((direction) => (direction === 'asc' ? 'desc' : 'asc'))}
-              className="tap inline-flex h-10 w-10 items-center justify-center rounded-[var(--radius)] text-muted hover:bg-surface-2 hover:text-text"
-              aria-label={sortDirection === 'asc' ? t('tasks.sortAscending') : t('tasks.sortDescending')}
-            >
-              <ArrowDown
-                className={cn(
-                  'h-4 w-4 transition-transform duration-150 ease-out',
-                  sortDirection === 'asc' && 'rotate-180',
-                )}
-              />
-            </button>
-          </div>
-        )}
-        <Button size="sm" onClick={() => setCreating(true)}>
+    <div className="page-stack-compact">
+      <PageHeader
+        title={t('tasks.title')}
+        actions={
+          <Button size="sm" onClick={() => setCreating(true)}>
           <Plus className="h-4 w-4" />
           {t('tasks.newTask')}
-        </Button>
-      </div>
+          </Button>
+        }
+      />
+
+      <Toolbar
+        navigation={
+          <Segmented
+            ariaLabel={t('tasks.title')}
+            value={view}
+            onChange={setView}
+            items={[
+              { value: 'list', icon: <LayoutList className="h-4 w-4" />, title: t('tasks.viewList') },
+              { value: 'board', icon: <KanbanSquare className="h-4 w-4" />, title: t('tasks.viewBoard') },
+              { value: 'graph', icon: <Network className="h-4 w-4" />, title: t('tasks.viewGraph') },
+              { value: 'calendar', icon: <CalendarDays className="h-4 w-4" />, title: t('nav.calendar') },
+            ]}
+          />
+        }
+        primary={
+          <div className="relative min-w-52">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder={t('tasks.searchPlaceholder')}
+              aria-label={t('common.search')}
+              className={cn(fieldCls, 'bg-surface-2/50 pl-9 pr-11')}
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                className="tap absolute right-0 top-0 inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius)] text-muted hover:text-text"
+                aria-label={t('common.clear')}
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        }
+        utilities={
+          <div className="flex w-full min-w-[15.5rem] items-center justify-end gap-1">
+            <label
+              className={cn(
+                'tap inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-[var(--radius)] text-muted hover:bg-surface-2 hover:text-text',
+                hideCompleted && 'bg-accent/10 text-accent',
+              )}
+              title={t('tasks.hideCompleted')}
+            >
+              <input
+                type="checkbox"
+                checked={hideCompleted}
+                onChange={(event) => setHideCompleted(event.target.checked)}
+                className="sr-only"
+              />
+              {hideCompleted ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              <span className="sr-only">{t('tasks.hideCompleted')}</span>
+            </label>
+            {view === 'list' && (
+              <button
+                type="button"
+                onClick={() => setCollapsedDependencyIds(dependenciesCollapsed ? new Set() : dependencyParentIds)}
+                className={cn(
+                  'tap inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius)] text-muted hover:bg-surface-2 hover:text-text',
+                  dependenciesCollapsed && 'bg-accent/10 text-accent',
+                )}
+                title={dependenciesCollapsed ? t('tasks.expandAllDependencies') : t('tasks.collapseAllDependencies')}
+                aria-label={dependenciesCollapsed ? t('tasks.expandAllDependencies') : t('tasks.collapseAllDependencies')}
+                aria-pressed={dependenciesCollapsed}
+              >
+                <span className="relative h-4 w-4" aria-hidden>
+                  <Maximize2
+                    className={cn(
+                      'absolute inset-0 h-4 w-4 transition-[opacity,filter,scale] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)]',
+                      dependenciesCollapsed ? 'scale-100 opacity-100 blur-0' : 'scale-[0.25] opacity-0 blur-[4px]',
+                    )}
+                  />
+                  <Minimize2
+                    className={cn(
+                      'absolute inset-0 h-4 w-4 transition-[opacity,filter,scale] duration-300 [transition-timing-function:cubic-bezier(0.2,0,0,1)]',
+                      dependenciesCollapsed ? 'scale-[0.25] opacity-0 blur-[4px]' : 'scale-100 opacity-100 blur-0',
+                    )}
+                  />
+                </span>
+              </button>
+            )}
+            {view === 'board' && (
+              <>
+                <select
+                  value={sortKey}
+                  onChange={(event) => setSortKey(event.target.value as TaskSortKey)}
+                  className={cn(fieldCls, 'w-36')}
+                  aria-label={t('tasks.sort')}
+                >
+                  <option value="manual">{t('tasks.sortManual')}</option>
+                  <option value="key">{t('tasks.sortKey')}</option>
+                  <option value="title">{t('tasks.sortTitle')}</option>
+                  <option value="status">{t('task.status')}</option>
+                  <option value="priority">{t('task.priority')}</option>
+                  <option value="tags">{t('task.tags')}</option>
+                  <option value="startDate">{t('task.start')}</option>
+                  <option value="dueDate">{t('task.due')}</option>
+                  <option value="createdAt">{t('tasks.sortCreated')}</option>
+                  <option value="updatedAt">{t('tasks.sortUpdated')}</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => setSortDirection((direction) => (direction === 'asc' ? 'desc' : 'asc'))}
+                  className="tap inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius)] text-muted hover:bg-surface-2 hover:text-text"
+                  aria-label={sortDirection === 'asc' ? t('tasks.sortAscending') : t('tasks.sortDescending')}
+                >
+                  <ArrowDown
+                    className={cn(
+                      'h-4 w-4 transition-transform duration-150 ease-out',
+                      sortDirection === 'asc' && 'rotate-180',
+                    )}
+                  />
+                </button>
+              </>
+            )}
+          </div>
+        }
+      />
 
       {pendingProposals.length > 0 && (
         <Link

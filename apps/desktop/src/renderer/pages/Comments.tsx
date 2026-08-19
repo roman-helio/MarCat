@@ -9,18 +9,21 @@ import { useSettings } from '@/store/settings'
 import { useUi } from '@/store/ui'
 import { toast } from '@/store/toast'
 import { Button } from '@/components/ui/Button'
+import { PageHeader } from '@/components/ui/Screen'
+import { Segmented } from '@/components/ui/Toggle'
 import { LoadingState, QueryError } from '@/components/ui/QueryState'
+import { CARD_STATE_STYLES, CardStateBadge, type CardStateTone } from '@/components/ui/CardState'
 
 type CommentStatus = 'unread' | 'open' | 'replied' | 'ignored'
 type CommentFilter = 'all' | 'needs_reply' | CommentStatus
 
 const FILTERS: CommentFilter[] = ['all', 'needs_reply', 'unread', 'open', 'replied', 'ignored']
 
-const statusTone: Record<CommentStatus, string> = {
-  unread: 'bg-accent/12 text-accent',
-  open: 'bg-warning/12 text-warning',
-  replied: 'bg-success/12 text-success',
-  ignored: 'bg-surface-2 text-muted',
+const COMMENT_STATUS_TONES: Record<CommentStatus, CardStateTone> = {
+  unread: 'info',
+  open: 'warning',
+  replied: 'success',
+  ignored: 'neutral',
 }
 
 export function Comments() {
@@ -108,11 +111,8 @@ export function Comments() {
   }
 
   return (
-    <div className="enter-stagger mx-auto max-w-5xl space-y-5">
-      <header>
-        <h1 className="t-title text-balance">{t('nav.comments')}</h1>
-        <p className="mt-1 max-w-2xl t-body text-pretty text-muted">{t('comments.subtitle')}</p>
-      </header>
+    <div className="page-stack">
+      <PageHeader title={t('nav.comments')} subtitle={t('comments.subtitle')} />
 
       {sourceQuery.isError && <QueryError error={sourceQuery.error} onRetry={() => void sourceQuery.refetch()} />}
       {sourceQuery.isLoading && <LoadingState />}
@@ -120,33 +120,25 @@ export function Comments() {
       {sourceQuery.data && (
         <section aria-label={t('nav.comments')}>
           {sourceQuery.data.length > 0 && (
-            <div className="overflow-x-auto border-b border-border">
-              <div className="flex min-w-max gap-1" role="tablist">
-                {sourceQuery.data.map((source) => {
-                  const active = source.id === activeSource?.id
-                  return (
-                    <button
-                      key={source.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      onClick={() => setView(viewKey, { sourceId: source.id })}
-                      className={cn(
-                        'relative inline-flex min-h-10 items-center gap-2 rounded-t-[var(--radius)] px-3 text-sm transition-[color,background-color,scale] duration-150 ease-out active:scale-[0.96]',
-                        active ? 'bg-surface-2 text-text' : 'text-muted hover:bg-surface-2/60 hover:text-text',
-                      )}
-                    >
+            <div className="overflow-x-auto rounded-[12px]">
+              <Segmented
+                value={activeSource?.id ?? sourceQuery.data[0].id}
+                onChange={(sourceId) => setView(viewKey, { sourceId })}
+                ariaLabel={t('nav.comments')}
+                items={sourceQuery.data.map((source) => ({
+                  value: source.id,
+                  label: (
+                    <>
                       <span>{source.displayName || source.label}</span>
                       {source.needsReply > 0 && (
-                        <span className="min-w-5 rounded-full bg-accent-fill px-1.5 text-center text-[11px] font-medium leading-5 text-accent-fg tabular-nums">
+                        <span className="nums min-w-5 rounded-full bg-accent-fill px-1.5 text-center t-caption font-medium leading-5 text-accent-fg">
                           {Math.min(source.needsReply, 99)}
                         </span>
                       )}
-                      {active && <span className="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-accent" />}
-                    </button>
-                  )
-                })}
-              </div>
+                    </>
+                  ),
+                }))}
+              />
             </div>
           )}
 
@@ -204,15 +196,20 @@ export function Comments() {
         {visibleComments.map((comment) => (
           <article
             key={comment.id}
-            className="rounded-[calc(var(--radius)+4px)] bg-surface p-4 shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-border)_82%,transparent),0_2px_8px_rgba(0,0,0,0.04)]"
+            className={cn(
+              'min-w-0 rounded-[10px] border-l-[4px] bg-surface p-4 shadow-hard',
+              CARD_STATE_STYLES[COMMENT_STATUS_TONES[comment.status]].spine,
+            )}
           >
             <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium">{comment.authorName || t('comments.unknownAuthor')}</span>
-                  <span className={cn('rounded px-1.5 py-0.5 text-[11px] font-medium', statusTone[comment.status])}>
-                    {t(`comments.${comment.status}`)}
+                  <span className="break-words text-sm font-medium [overflow-wrap:anywhere]">
+                    {comment.authorName || t('comments.unknownAuthor')}
                   </span>
+                  <CardStateBadge tone={COMMENT_STATUS_TONES[comment.status]}>
+                    {t(`comments.${comment.status}`)}
+                  </CardStateBadge>
                   {comment.rating != null && (
                     <span
                       className="inline-flex items-center gap-1 text-xs text-warning tabular-nums"
@@ -229,14 +226,18 @@ export function Comments() {
               </div>
             </div>
 
-            <p className="mt-3 whitespace-pre-wrap text-pretty text-sm leading-6 text-text">{comment.body}</p>
+            <p className="mt-3 min-w-0 max-w-full break-words whitespace-pre-wrap text-pretty text-sm leading-6 text-text [overflow-wrap:anywhere]">
+              {comment.body}
+            </p>
 
             {comment.developerReply && (
               <div className="mt-3 rounded-[var(--radius)] bg-surface-2 px-3 py-2">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                <div className="t-caption font-medium uppercase tracking-wide text-muted">
                   {t('comments.developerReply')}
                 </div>
-                <p className="mt-1 whitespace-pre-wrap text-pretty text-sm leading-5">{comment.developerReply}</p>
+                <p className="mt-1 min-w-0 max-w-full break-words whitespace-pre-wrap text-pretty text-sm leading-5 [overflow-wrap:anywhere]">
+                  {comment.developerReply}
+                </p>
               </div>
             )}
 

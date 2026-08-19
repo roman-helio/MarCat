@@ -1,7 +1,20 @@
-import { useEffect, useRef, useState } from 'react'
+import { Component, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ArrowUp, Check, Eye, Pencil, Plus, Search, Sparkles, Trash2, X } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Eye,
+  Pencil,
+  Plus,
+  RotateCw,
+  Search,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { trpc } from '@/lib/trpc'
 import { cn, fieldCls } from '@/lib/utils'
 import { isOverdue } from '@/lib/date'
@@ -9,9 +22,11 @@ import { useModal } from '@/lib/modal'
 import { useUi } from '@/store/ui'
 import { confirm } from '@/store/confirm'
 import { toast } from '@/store/toast'
+import { reportRendererError } from '@/lib/diagnostics'
 import { Button } from '@/components/ui/Button'
 import { RichText } from '@/components/ui/RichText'
 import { ColorSelect } from '@/components/ui/ColorSelect'
+import { CardStateBadge } from '@/components/ui/CardState'
 import { useT } from '@/i18n/useT'
 import { ActivityLog } from '@/components/activities/ActivityLog'
 import { PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, type TaskPatch } from './meta'
@@ -21,7 +36,103 @@ import { TaskRecurrenceControl } from './TaskRecurrenceControl'
 const sectionLabel = 't-hint font-medium text-text'
 const panel = 'rounded-[12px] bg-bg/55 p-3 shadow-hard'
 
-export function TaskDrawer({ taskId, gameId, onClose }: { taskId: string; gameId: string; onClose: () => void }) {
+interface TaskDrawerProps {
+  taskId: string
+  gameId: string
+  onClose: () => void
+}
+
+class TaskDrawerErrorBoundary extends Component<
+  TaskDrawerProps & {
+    children: ReactNode
+    crashTitle: string
+    crashBody: string
+    retryLabel: string
+    closeLabel: string
+  },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    reportRendererError('react-boundary', error, {
+      componentStack: info.componentStack ?? undefined,
+      scope: 'task-drawer',
+      taskId: this.props.taskId,
+    })
+    console.error('Task drawer crashed', error, info.componentStack)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <div
+        className="fixed inset-x-0 bottom-0 top-9 z-40 flex justify-end bg-black/30"
+        onMouseDown={this.props.onClose}
+      >
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="task-drawer-crash-title"
+          className="flex h-full w-[min(800px,100vw)] flex-col border-l border-border bg-surface shadow-2xl"
+          onMouseDown={(event) => event.stopPropagation()}
+        >
+          <div className="flex min-h-14 items-center justify-between border-b border-border px-4">
+            <span className="nums text-xs text-muted">{this.props.taskId.slice(0, 8)}</span>
+            <button
+              type="button"
+              onClick={this.props.onClose}
+              className="tap inline-flex h-10 w-10 items-center justify-center rounded-[var(--radius)] text-muted hover:bg-surface-2 hover:text-text"
+              aria-label={this.props.closeLabel}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div role="alert" className="grid min-h-0 flex-1 place-items-center overflow-y-auto p-6">
+            <div className="w-full max-w-md rounded-[12px] bg-bg/55 p-5 text-center shadow-hard">
+              <AlertTriangle className="mx-auto h-8 w-8 text-alarm" aria-hidden />
+              <h2 id="task-drawer-crash-title" className="mt-3 t-subtitle text-text">
+                {this.props.crashTitle}
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-muted">{this.props.crashBody}</p>
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                <Button variant="outline" onClick={this.props.onClose}>
+                  {this.props.closeLabel}
+                </Button>
+                <Button onClick={() => this.setState({ error: null })}>
+                  <RotateCw className="h-4 w-4" />
+                  {this.props.retryLabel}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+}
+
+export function TaskDrawer(props: TaskDrawerProps) {
+  const t = useT()
+  return (
+    <TaskDrawerErrorBoundary
+      key={props.taskId}
+      {...props}
+      crashTitle={t('task.crashTitle')}
+      crashBody={t('task.crashBody')}
+      retryLabel={t('common.retry')}
+      closeLabel={t('common.close')}
+    >
+      <TaskDrawerContent {...props} />
+    </TaskDrawerErrorBoundary>
+  )
+}
+
+function TaskDrawerContent({ taskId, gameId, onClose }: TaskDrawerProps) {
   const t = useT()
   const qc = useQueryClient()
   const navigate = useNavigate()
@@ -44,6 +155,11 @@ export function TaskDrawer({ taskId, gameId, onClose }: { taskId: string; gameId
     queryKey: ['tags-status', gameId],
     queryFn: () => trpc.tags.withStatus.query({ gameId }),
   })
+
+  useEffect(() => {
+    if (!detail.error) return
+    reportRendererError('data-load-error', detail.error, { scope: 'task-drawer', taskId })
+  }, [detail.error, taskId])
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['task', taskId] })
@@ -174,7 +290,7 @@ export function TaskDrawer({ taskId, gameId, onClose }: { taskId: string; gameId
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/30" onMouseDown={onClose}>
+    <div className="fixed inset-x-0 bottom-0 top-9 z-40 flex justify-end bg-black/30" onMouseDown={onClose}>
       <div
         ref={panelRef}
         role="dialog"
@@ -184,11 +300,7 @@ export function TaskDrawer({ taskId, gameId, onClose }: { taskId: string; gameId
       >
         <div className="flex min-h-14 items-center gap-2 border-b border-border px-4">
           <span className="nums text-xs text-muted">{task?.taskKey ?? t('task.title')}</span>
-          {task && (
-            <span className={cn('rounded-[5px] px-1.5 py-0.5 text-[11px]', STATUS_META[task.status].badge)}>
-              {t(`status.${task.status}`)}
-            </span>
-          )}
+          {task && <CardStateBadge tone={STATUS_META[task.status].tone}>{t(`status.${task.status}`)}</CardStateBadge>}
           <span className="min-w-0 flex-1 truncate text-xs text-muted">{task?.title}</span>
           <button
             onClick={onClose}
@@ -199,19 +311,38 @@ export function TaskDrawer({ taskId, gameId, onClose }: { taskId: string; gameId
           </button>
         </div>
 
-        {!task ? (
+        {detail.isError || (detail.isSuccess && !task) ? (
+          <div role="alert" className="grid min-h-64 place-items-center p-6">
+            <div className="w-full max-w-sm rounded-[12px] bg-bg/55 p-5 text-center shadow-hard">
+              <AlertTriangle className="mx-auto h-7 w-7 text-alarm" aria-hidden />
+              <h2 className="mt-3 t-section text-text">{t('task.loadErrorTitle')}</h2>
+              <p className="mt-2 text-sm leading-relaxed text-muted">{t('task.loadErrorBody')}</p>
+              <Button className="mt-4" onClick={() => void detail.refetch()} disabled={detail.isFetching}>
+                <RotateCw className="h-4 w-4" />
+                {t('common.retry')}
+              </Button>
+            </div>
+          </div>
+        ) : !task ? (
           <p className="p-4 text-sm text-muted">{t('common.loading')}</p>
         ) : (
           <div className="min-h-0 flex-1 overflow-y-auto p-4">
             <p className="nums mb-1 text-xs font-medium text-accent">{task.taskKey}</p>
-            <input
+            <textarea
               key={task.id}
               defaultValue={task.title}
+              rows={1}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  event.currentTarget.blur()
+                }
+              }}
               onBlur={(event) => {
                 const value = event.target.value.trim()
                 if (value && value !== task.title) update.mutate({ title: value })
               }}
-              className="mb-4 w-full bg-transparent text-xl font-medium leading-snug text-text outline-none focus-visible:ring-0"
+              className="mb-4 block w-full resize-none overflow-hidden bg-transparent t-subtitle text-balance text-text outline-none [field-sizing:content] focus-visible:ring-0"
               aria-label={t('task.title')}
             />
 
@@ -390,7 +521,7 @@ export function TaskDrawer({ taskId, gameId, onClose }: { taskId: string; gameId
                       <span
                         key={tag.id}
                         className={cn(
-                          'inline-flex items-center rounded-[6px] pl-1.5 text-[11px]',
+                          'inline-flex items-center rounded-[6px] pl-1.5 t-caption',
                           !tag.colorEnabled && 'bg-surface-2 text-muted',
                         )}
                         style={tag.colorEnabled ? { background: `${tag.color}1f`, color: tag.color } : undefined}
@@ -445,14 +576,14 @@ export function TaskDrawer({ taskId, gameId, onClose }: { taskId: string; gameId
                           className="flex min-h-10 w-full items-center gap-2 px-2.5 text-left text-xs hover:bg-surface-2"
                         >
                           <span className="min-w-0 flex-1 truncate">{tag.name}</span>
-                          <span className="nums shrink-0 text-[11px] text-muted">
+                          <span className="nums shrink-0 t-caption text-muted">
                             {tag.linkedClosed}/{tag.linkedTotal}
                           </span>
                         </button>
                       ))}
                     </div>
                   )}
-                  {newTag.trim() && <p className="mt-1 text-[11px] text-muted">{t('tasks.tagCreateHint')}</p>}
+                  {newTag.trim() && <p className="mt-1 t-caption text-muted">{t('tasks.tagCreateHint')}</p>}
                 </section>
 
                 <section className={panel}>
@@ -520,7 +651,7 @@ export function TaskDrawer({ taskId, gameId, onClose }: { taskId: string; gameId
                     </div>
                   )}
                   {depError && <p className="mt-1 text-xs text-alarm">{depError}</p>}
-                  <p className="mt-2 text-[11px] leading-relaxed text-muted">{t('task.blockerAutomation')}</p>
+                  <p className="mt-2 t-caption leading-relaxed text-muted">{t('task.blockerAutomation')}</p>
                   {(detail.data?.blocks ?? []).length > 0 && (
                     <p className="mt-2 text-xs text-muted text-pretty">
                       {t('task.blocks', {

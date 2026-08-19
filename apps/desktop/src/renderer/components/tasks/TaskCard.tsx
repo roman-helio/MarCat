@@ -3,6 +3,7 @@ import { ChevronRight, Repeat2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { daysUntil, isOverdue } from '@/lib/date'
 import { useT } from '@/i18n/useT'
+import { CardStateBadge, CardSurface } from '@/components/ui/CardState'
 import { PRIORITY_META, STATUS_META, type TaskPriority, type TaskStatus, type TaskTag } from './meta'
 import { TagBadge } from './TagBadge'
 
@@ -47,17 +48,12 @@ export function TaskCardBody({
     return (
       <div className="flex min-w-0 items-center gap-2">
         {task.taskKey && <span className="nums w-[5.25rem] shrink-0 text-xs text-muted">{task.taskKey}</span>}
-        <span
-          className={cn(
-            'hidden shrink-0 rounded-[5px] px-1.5 py-0.5 text-[11px] leading-4 sm:inline-flex',
-            STATUS_META[task.status].badge,
-          )}
-        >
+        <CardStateBadge tone={STATUS_META[task.status].tone} className="hidden shrink-0 sm:inline-flex">
           {t(`status.${task.status}`)}
-        </span>
+        </CardStateBadge>
         <span
           className={cn(
-            'hidden shrink-0 rounded-[5px] px-1.5 py-0.5 text-[11px] leading-4 md:inline-flex',
+            'hidden shrink-0 rounded-[5px] px-1.5 py-0.5 t-caption leading-4 md:inline-flex',
             PRIORITY_META[task.priority].cls,
           )}
         >
@@ -73,7 +69,7 @@ export function TaskCardBody({
             {task.tags!.slice(0, 2).map((tag) => (
               <TagBadge key={tag.id} tag={tag} className="max-w-32" />
             ))}
-            {task.tags!.length > 2 && <span className="nums text-[11px] text-muted">+{task.tags!.length - 2}</span>}
+            {task.tags!.length > 2 && <span className="nums t-caption text-muted">+{task.tags!.length - 2}</span>}
           </span>
         )}
         {task.recurrenceInterval && task.recurrenceUnit && (
@@ -113,10 +109,8 @@ export function TaskCardBody({
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-1.5 t-hint">
           {task.taskKey && <span className="nums text-text">{task.taskKey}</span>}
-          <span className={cn('rounded-[5px] px-1.5 py-0.5 text-[11px]', STATUS_META[task.status].badge)}>
-            {t(`status.${task.status}`)}
-          </span>
-          <span className={cn('rounded-[5px] px-1.5 py-0.5 text-[11px]', PRIORITY_META[task.priority].cls)}>
+          <CardStateBadge tone={STATUS_META[task.status].tone}>{t(`status.${task.status}`)}</CardStateBadge>
+          <span className={cn('rounded-[5px] px-1.5 py-0.5 t-caption', PRIORITY_META[task.priority].cls)}>
             {t(`prio.${task.priority}`)}
           </span>
           {task.recurrenceInterval && task.recurrenceUnit && (
@@ -158,7 +152,7 @@ export function TaskCardBody({
               <TagBadge key={tag.id} tag={tag} />
             ))}
             {task.tags!.length > 2 && (
-              <span className="nums shrink-0 text-[11px] text-muted">+{task.tags!.length - 2}</span>
+              <span className="nums shrink-0 t-caption text-muted">+{task.tags!.length - 2}</span>
             )}
           </div>
         )}
@@ -182,29 +176,26 @@ interface TaskCardProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'c
   onOpen: (taskId: string) => void
   selected?: boolean
   compact?: boolean
+  dragging?: boolean
 }
 
 export const TaskCard = forwardRef<HTMLButtonElement, TaskCardProps>(
-  ({ task, gameName, onOpen, selected = false, compact = false, className, ...props }, ref) => {
+  ({ task, gameName, onOpen, selected = false, compact = false, dragging = false, className, ...props }, ref) => {
     const t = useT()
-    const overdue = isOverdue(task.dueDate) && task.status !== 'done' && task.status !== 'cancelled'
     return (
-      <button
+      <CardSurface
         ref={ref}
-        type="button"
+        tone={STATUS_META[task.status].tone}
         onClick={() => onOpen(task.id)}
         aria-label={t('task.open', { title: task.title })}
-        className={cn(
-          'tactile group w-full rounded-[10px] bg-surface p-2.5 text-left shadow-hard focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
-          compact && 'rounded-[8px] px-2.5 py-2',
-          overdue && 'bg-red-50/80 dark:bg-red-950/20',
-          selected && 'ring-2 ring-accent/50',
-          className,
-        )}
+        selected={selected}
+        compact={compact}
+        dragging={dragging}
+        className={className}
         {...props}
       >
         <TaskCardBody task={task} gameName={gameName} compact={compact} />
-      </button>
+      </CardSurface>
     )
   },
 )

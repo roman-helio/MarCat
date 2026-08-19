@@ -15,6 +15,7 @@ export interface CatLevel {
 export interface WishlistBalancePoint {
   adds?: number | null
   deletes?: number | null
+  purchasesAndActivations?: number | null
   gifts?: number | null
   net?: number | null
   balance?: number | null
@@ -29,9 +30,15 @@ export function resolveWishlistBalance(points: WishlistBalancePoint[]): number |
       balance = point.balance
       continue
     }
-    const hasChange = point.net != null || point.adds != null || point.deletes != null || point.gifts != null
+    const hasChange =
+      point.net != null ||
+      point.adds != null ||
+      point.deletes != null ||
+      point.purchasesAndActivations != null ||
+      point.gifts != null
     if (!hasChange) continue
-    const change = point.net ?? (point.adds ?? 0) - (point.deletes ?? 0) - (point.gifts ?? 0)
+    const change =
+      point.net ?? (point.adds ?? 0) - (point.deletes ?? 0) - (point.purchasesAndActivations ?? 0) - (point.gifts ?? 0)
     balance = Math.max(0, (balance ?? 0) + change)
     sawChange = true
   }

@@ -23,6 +23,7 @@ import { toast } from '@/store/toast'
 import { confirm } from '@/store/confirm'
 import { useT } from '@/i18n/useT'
 import { Button } from '@/components/ui/Button'
+import { PageHeader } from '@/components/ui/Screen'
 import { LoadingState, QueryError } from '@/components/ui/QueryState'
 
 type Draft = { title: string; body: string }
@@ -183,16 +184,13 @@ export function Insights() {
   const busy = createInsight.isPending || updateInsight.isPending
 
   return (
-    <div className="enter-stagger w-full min-w-0 space-y-5">
-      <header className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <Lightbulb className="h-5 w-5 text-accent" aria-hidden />
-            <h1 className="t-title text-balance">{t('insights.title')}</h1>
-          </div>
-          <p className="mt-1 max-w-2xl t-hint text-pretty">{t('insights.subtitle')}</p>
-        </div>
-        <div className="flex flex-wrap gap-2">
+    <div className="page-stack w-full">
+      <PageHeader
+        title={t('insights.title')}
+        subtitle={t('insights.subtitle')}
+        leading={<Lightbulb className="h-5 w-5" aria-hidden />}
+        actions={
+          <>
           <Button size="sm" variant="outline" onClick={askCat}>
             <Cat className="h-4 w-4" aria-hidden />
             {t('insights.askCat')}
@@ -201,8 +199,9 @@ export function Insights() {
             <Plus className="h-4 w-4" aria-hidden />
             {t('insights.new')}
           </Button>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <div
         className={cn(
@@ -272,7 +271,7 @@ export function Insights() {
                     <span className="flex items-start justify-between gap-2">
                       <span className="block text-sm font-medium text-pretty">{item.title}</span>
                       {item.required && (
-                        <span className="shrink-0 rounded-full bg-accent/12 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent">
+                        <span className="shrink-0 rounded-full bg-accent/12 px-2 py-0.5 t-caption font-semibold uppercase tracking-wide text-accent">
                           {item.filled ? t('insights.required') : t('insights.needsFilling')}
                         </span>
                       )}
@@ -347,7 +346,7 @@ export function Insights() {
                   className="mt-5 min-h-0 min-w-0 flex-1 overflow-y-auto pr-1"
                   onContextMenu={(event) => selectedId && void showInsightContextMenu(event, selectedId)}
                 >
-                  <h2 className="break-words text-balance text-2xl font-semibold leading-tight text-text [overflow-wrap:anywhere]">
+                  <h2 className="break-words t-content-title text-balance [overflow-wrap:anywhere]">
                     {draft.title || t('insights.titlePlaceholder')}
                   </h2>
                   <div className="markdown-content mt-5 min-w-0 break-words text-sm text-pretty [overflow-wrap:anywhere]">
@@ -373,7 +372,7 @@ export function Insights() {
                 <div className="mt-5 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
                   {isProjectCard ? (
                     <div>
-                      <h2 className="text-balance text-2xl font-semibold leading-tight text-text">{draft.title}</h2>
+                      <h2 className="t-content-title text-balance">{draft.title}</h2>
                       <p className="mt-1 max-w-2xl t-hint text-pretty">{t('insights.projectCardHelp')}</p>
                     </div>
                   ) : (
@@ -384,7 +383,7 @@ export function Insights() {
                       placeholder={t('insights.titlePlaceholder')}
                       maxLength={240}
                       rows={1}
-                      className="max-h-32 w-full resize-none overflow-y-auto bg-transparent text-2xl font-semibold leading-tight text-text outline-none [field-sizing:content] placeholder:text-muted/55"
+                      className="max-h-32 w-full resize-none overflow-y-auto bg-transparent t-content-title text-text outline-none [field-sizing:content] placeholder:text-muted/55"
                     />
                   )}
                   <textarea

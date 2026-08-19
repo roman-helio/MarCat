@@ -9,6 +9,7 @@ import { useCompanion } from '@/store/companion'
 import { bigCat, FACES } from '@/components/companion/cat'
 import { Button } from '@/components/ui/Button'
 import { Segmented } from '@/components/ui/Toggle'
+import { PageHeader } from '@/components/ui/Screen'
 import { PRIORITY_ORDER, type TaskPriority } from '@/components/tasks/meta'
 import { samplePlaybooks } from '@/lib/playbooks'
 import { catLevel, resolveWishlistBalance } from '@/lib/level'
@@ -45,6 +46,14 @@ type Comment = { id: string; quote: string; text: string }
 
 const asStr = (v: unknown) => (typeof v === 'string' ? v : '')
 const asList = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x)) : [])
+const asReferenceLabels = (value: unknown) =>
+  Array.isArray(value)
+    ? value
+        .map((item) =>
+          item && typeof item === 'object' ? asStr((item as Record<string, unknown>).label) : asStr(item),
+        )
+        .filter(Boolean)
+    : []
 
 export function AiDen() {
   const t = useT()
@@ -354,8 +363,8 @@ export function AiDen() {
   }
 
   return (
-    <div className="enter-stagger mx-auto max-w-6xl space-y-5">
-      <h1 className="t-title">{t('ai.den')}</h1>
+    <div className="page-stack">
+      <PageHeader title={t('ai.den')} />
 
       {(available.isError || runs.isError || detail.isError || wishlist.isError) && (
         <QueryError
@@ -449,7 +458,7 @@ export function AiDen() {
       </div>
 
       {error && (
-        <div className="rounded-[var(--radius)] border border-alarm bg-alarm/10 px-3 py-2 font-mono text-xs whitespace-pre-wrap text-alarm">
+        <div className="max-w-full break-words whitespace-pre-wrap rounded-[var(--radius)] border border-alarm bg-alarm/10 px-3 py-2 font-mono text-xs text-alarm [overflow-wrap:anywhere]">
           {error}
         </div>
       )}
@@ -488,7 +497,7 @@ export function AiDen() {
         </div>
 
         {/* selected proposal */}
-        <div ref={proposalRef} onMouseUp={onProposalMouseUp} className="space-y-2">
+        <div ref={proposalRef} onMouseUp={onProposalMouseUp} className="min-w-0 space-y-2">
           {d && (
             <div className="flex items-center justify-between">
               <span className="t-hint">{t(STATUS_KEY[d.run.status] ?? 'ai.proposed')}</span>
@@ -536,7 +545,9 @@ export function AiDen() {
           ) : d.run.status === 'error' ? (
             <div className="space-y-1 rounded-[var(--radius)] border border-alarm bg-alarm/10 p-4">
               <p className="t-section text-alarm">{t('ai.errorTitle')}</p>
-              <pre className="whitespace-pre-wrap font-mono text-xs text-alarm">{d.run.summary}</pre>
+              <pre className="max-w-full break-words whitespace-pre-wrap font-mono text-xs text-alarm [overflow-wrap:anywhere]">
+                {d.run.summary}
+              </pre>
             </div>
           ) : (
             <div className="space-y-3 rounded-[var(--radius)] border border-border bg-surface p-4">
@@ -547,7 +558,7 @@ export function AiDen() {
                     <div
                       key={m.id}
                       className={cn(
-                        'rounded-[var(--radius)] px-2.5 py-1.5 text-sm whitespace-pre-wrap',
+                        'max-w-full break-words whitespace-pre-wrap rounded-[var(--radius)] px-2.5 py-1.5 text-sm [overflow-wrap:anywhere]',
                         m.role === 'user' ? 'bg-surface-2 text-text' : 'border border-border bg-bg text-text',
                       )}
                     >
@@ -569,14 +580,28 @@ export function AiDen() {
                         key={c.id}
                         className="flex items-center gap-2 border-b border-border px-2.5 py-1.5 text-sm last:border-b-0"
                       >
-                        <span className="t-hint text-accent">{c.entity}</span>
-                        <span className="flex-1 truncate">
-                          {asStr(c.after.title) ||
-                            asStr(c.after.name) ||
-                            asStr(c.after.folder) ||
-                            (c.entity === 'insight' && asStr(c.after.body)
-                              ? `${t('insights.existing')}: ${asStr(c.after.body)}`
-                              : asStr(c.after.entityId))}
+                        <span className="t-hint text-accent">
+                          {c.entity === 'creator_discovery_search' ? t('ai.entity.youtubeDiscovery') : c.entity}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">
+                            {asStr(c.after.title) ||
+                              asStr(c.after.name) ||
+                              asStr(c.after.folder) ||
+                              (c.entity === 'insight' && asStr(c.after.body)
+                                ? `${t('insights.existing')}: ${asStr(c.after.body)}`
+                                : asStr(c.after.entityId))}
+                          </span>
+                          {c.entity === 'creator_discovery_search' && (
+                            <span className="mt-0.5 block truncate text-xs text-muted">
+                              {t('ai.discoveryProposal', {
+                                mode:
+                                  asStr(c.after.mode) === 'topic' ? t('discovery.modeTopic') : t('discovery.modeGames'),
+                                references: asReferenceLabels(c.after.references).join(', ') || '—',
+                                channels: Number(c.after.maxChannels) || 500,
+                              })}
+                            </span>
+                          )}
                         </span>
                         {(asStr(c.after.date) || asStr(c.after.targetDate) || asStr(c.after.startDate)) && (
                           <span className="text-xs text-muted">

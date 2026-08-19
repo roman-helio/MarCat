@@ -10,6 +10,7 @@ import { catLevel, resolveWishlistBalance } from '@/lib/level'
 import { useUi } from '@/store/ui'
 import { useCompanion } from '@/store/companion'
 import { Button } from '@/components/ui/Button'
+import { PageHeader } from '@/components/ui/Screen'
 import { useT } from '@/i18n/useT'
 import { LoadingState, QueryError } from '@/components/ui/QueryState'
 import { TaskCard } from '@/components/tasks/TaskCard'
@@ -36,13 +37,13 @@ function MetricCell({
 }) {
   const content = (
     <>
-      <span className="flex items-center gap-1.5 text-[11px] text-muted">
+      <span className="flex items-center gap-1.5 t-caption text-muted">
         {icon}
         {label}
       </span>
       <span className="mt-1.5 flex min-h-5 items-baseline gap-2">
         <span className="nums text-sm font-semibold text-text">{value}</span>
-        {action && <span className="text-[11px] font-medium text-info">{action}</span>}
+        {action && <span className="t-caption font-medium text-info">{action}</span>}
       </span>
     </>
   )
@@ -220,16 +221,13 @@ export function GameHome() {
   const openDeadline = (tagId: string) => navigate(`/g/${gameId}/tasks?tag=${encodeURIComponent(tagId)}`)
 
   return (
-    <div className="enter-stagger mx-auto max-w-5xl space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3">
-          <span className="mt-1 h-3.5 w-3.5 rounded-full" style={{ backgroundColor: g.color }} aria-hidden />
-          <div>
-            <h1 className="t-title">{g.name}</h1>
-            <p className="mt-1 t-hint">{t('home.focusSubtitle')}</p>
-          </div>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
+    <div className="page-stack">
+      <PageHeader
+        title={g.name}
+        subtitle={t('home.focusSubtitle')}
+        leading={<span className="h-3.5 w-3.5 rounded-full" style={{ backgroundColor: g.color }} aria-hidden />}
+        actions={
+          <>
           {g.steamStoreUrl && (
             <a
               href={g.steamStoreUrl}
@@ -242,8 +240,9 @@ export function GameHome() {
             <Pencil className="h-4 w-4" />
             {t('home.editProject')}
           </Button>
-        </div>
-      </header>
+          </>
+        }
+      />
 
       <section
         aria-label={t('home.storefrontMetrics')}

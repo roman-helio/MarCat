@@ -20,8 +20,8 @@ export const useToasts = create<ToastState>((set, get) => ({
   push: (kind, msg) => {
     const id = nextId++
     set((s) => ({ toasts: [...s.toasts, { id, kind, msg }] }))
-    // Auto-dismiss; errors linger longer than success/info.
-    setTimeout(() => get().dismiss(id), kind === 'error' ? 6000 : 3500)
+    // Errors require an explicit dismissal; routine feedback remains long enough to read.
+    if (kind !== 'error') setTimeout(() => get().dismiss(id), 5000)
   },
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 }))

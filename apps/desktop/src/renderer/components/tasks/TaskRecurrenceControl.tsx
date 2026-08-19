@@ -48,7 +48,7 @@ export function TaskRecurrenceControl({
         />
         <span className="min-w-0 flex-1">
           <span className="block text-xs font-medium text-text">{t('task.recurring')}</span>
-          <span className="block text-[11px] leading-relaxed text-muted">{t('task.recurringShortHint')}</span>
+          <span className="block t-caption leading-relaxed text-muted">{t('task.recurringShortHint')}</span>
         </span>
         <span
           aria-hidden
@@ -68,7 +68,7 @@ export function TaskRecurrenceControl({
 
       {value && (
         <div className="mt-2 grid grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)] gap-2 pl-6">
-          <label className="grid min-w-0 gap-1 text-[11px] text-muted">
+          <label className="grid min-w-0 gap-1 t-caption text-muted">
             {t('task.repeatEvery')}
             <input
               type="number"
@@ -88,7 +88,7 @@ export function TaskRecurrenceControl({
               className={cn(fieldCls, 'min-w-0 nums')}
             />
           </label>
-          <label className="grid min-w-0 gap-1 text-[11px] text-muted">
+          <label className="grid min-w-0 gap-1 t-caption text-muted">
             {t('task.repeatUnit')}
             <select
               value={value.unit}
@@ -101,7 +101,7 @@ export function TaskRecurrenceControl({
               <option value="year">{t('task.repeatUnit.year')}</option>
             </select>
           </label>
-          <p className="col-span-2 text-[11px] leading-relaxed text-muted text-pretty">{t('task.recurringHint')}</p>
+          <p className="col-span-2 t-caption leading-relaxed text-muted text-pretty">{t('task.recurringHint')}</p>
         </div>
       )}
     </div>

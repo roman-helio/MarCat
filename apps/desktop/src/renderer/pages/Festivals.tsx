@@ -9,11 +9,13 @@ import { confirm } from '@/store/confirm'
 import { toast } from '@/store/toast'
 import { Button } from '@/components/ui/Button'
 import { IconToggle } from '@/components/ui/Toggle'
+import { PageHeader } from '@/components/ui/Screen'
 import { useT } from '@/i18n/useT'
 import { ActivityLog } from '@/components/activities/ActivityLog'
 import { LoadingState, QueryError } from '@/components/ui/QueryState'
 import { DetailDrawer } from '@/components/ui/DetailDrawer'
 import { compareListValues, SortableHeader, StatusSelect, type SortDirection } from '@/components/ui/DataList'
+import { CARD_STATE_STYLES, type CardStateTone } from '@/components/ui/CardState'
 
 type Festival = Awaited<ReturnType<typeof trpc.festivals.list.query>>[number]
 
@@ -23,14 +25,17 @@ type FestivalStatus = (typeof STATUSES)[number]
 type FestivalSortKey = 'name' | 'organizer' | 'date' | 'deadline' | 'cost' | 'status'
 type FestivalSort = { key: FestivalSortKey; direction: SortDirection }
 
-function festivalStatusTone(status: FestivalStatus): string {
-  if (status === 'materials') return 'border-info/25 bg-info/10 text-info'
-  if (status === 'submitted') return 'border-accent/25 bg-accent/10 text-accent'
-  if (status === 'replied') return 'border-warning/25 bg-warning/10 text-warning'
-  if (status === 'approved') return 'border-success/25 bg-success/10 text-success'
-  if (status === 'rejected') return 'border-alarm/25 bg-alarm/10 text-alarm'
-  return 'border-border bg-surface-2 text-muted'
+const FESTIVAL_STATUS_TONES: Record<FestivalStatus, CardStateTone> = {
+  none: 'neutral',
+  materials: 'info',
+  submitted: 'info',
+  replied: 'warning',
+  approved: 'success',
+  rejected: 'danger',
 }
+
+const festivalDrawerPanel = 'rounded-[12px] bg-bg/55 p-3 shadow-hard'
+const festivalDrawerSectionLabel = 't-hint font-medium text-text'
 
 /** A festival is "past" once its last day (end, else start) is before today. */
 function isPastFest(f: { startDate?: string | null; endDate?: string | null }, today: string): boolean {
@@ -207,24 +212,26 @@ export function Festivals() {
   }
 
   return (
-    <div className="enter mx-auto max-w-6xl space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="t-title">{gameId ? t('nav.festivals') : t('fest.global')}</h1>
-        <div className="flex items-center gap-1.5">
-          {gameId && (
-            <IconToggle active={onlyPicked} onClick={() => setOnlyPicked((v) => !v)} title={t('fest.onlyPicked')}>
-              <Star className={cn('h-4 w-4', onlyPicked && 'fill-current')} />
+    <div className="page-stack">
+      <PageHeader
+        title={gameId ? t('nav.festivals') : t('fest.global')}
+        actions={
+          <>
+            {gameId && (
+              <IconToggle active={onlyPicked} onClick={() => setOnlyPicked((v) => !v)} title={t('fest.onlyPicked')}>
+                <Star className={cn('h-4 w-4', onlyPicked && 'fill-current')} />
+              </IconToggle>
+            )}
+            <IconToggle active={!showPast} onClick={() => setShowPast((v) => !v)} title={t('fest.showPast')}>
+              {showPast ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
             </IconToggle>
-          )}
-          <IconToggle active={!showPast} onClick={() => setShowPast((v) => !v)} title={t('fest.showPast')}>
-            {showPast ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-          </IconToggle>
-          <Button size="sm" onClick={() => setAdding((v) => !v)}>
-            <Plus className="h-4 w-4" />
-            {t('common.add')}
-          </Button>
-        </div>
-      </div>
+            <Button size="sm" onClick={() => setAdding((v) => !v)}>
+              <Plus className="h-4 w-4" />
+              {t('common.add')}
+            </Button>
+          </>
+        }
+      />
 
       <label className="relative block max-w-sm">
         <span className="sr-only">{t('common.search')}</span>
@@ -354,7 +361,10 @@ export function Festivals() {
                 <div
                   key={f.id}
                   className={cn(
-                    'render-skip border-b border-border bg-surface transition-colors last:border-b-0 hover:bg-surface-2/60',
+                    'render-skip border-b border-l-[4px] border-b-border bg-surface transition-colors last:border-b-0 hover:bg-surface-2/60',
+                    gameId && picked
+                      ? CARD_STATE_STYLES[FESTIVAL_STATUS_TONES[(statusOf.get(f.id) ?? 'none') as FestivalStatus]].spine
+                      : 'border-l-transparent',
                     past && 'text-muted',
                   )}
                 >
@@ -378,7 +388,7 @@ export function Festivals() {
                     >
                       <span className="flex min-w-0 items-center gap-1.5">
                         <span className="truncate font-medium">{f.name}</span>
-                        <span className="shrink-0 rounded-[5px] bg-surface-2 px-1.5 py-0.5 text-[11px] text-muted">
+                        <span className="shrink-0 rounded-[5px] bg-surface-2 px-1.5 py-0.5 t-caption text-muted">
                           {f.type}
                         </span>
                       </span>
@@ -426,7 +436,10 @@ export function Festivals() {
                           value={(statusOf.get(f.id) ?? 'none') as FestivalStatus}
                           options={statusOptions}
                           onChange={(status) => setStatus.mutate({ industryEventId: f.id, status })}
-                          toneClassName={festivalStatusTone((statusOf.get(f.id) ?? 'none') as FestivalStatus)}
+                          toneClassName={
+                            CARD_STATE_STYLES[FESTIVAL_STATUS_TONES[(statusOf.get(f.id) ?? 'none') as FestivalStatus]]
+                              .control
+                          }
                           ariaLabel={t('fest.statusHint')}
                           className="w-full"
                         />
@@ -557,7 +570,7 @@ function FestivalDrawer({
 
   const triLabel = (v: string) => t(`fest.tri.${v || 'unknown'}` as 'fest.tri.unknown')
   const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <label className="flex flex-col gap-1 t-hint">
+    <label className="grid min-w-0 gap-1 t-hint">
       {label}
       {children}
     </label>
@@ -568,165 +581,204 @@ function FestivalDrawer({
       label={t('mtype.festival')}
       meta={<span className="text-xs text-muted">{f.type}</span>}
       onClose={onClose}
+      width="wide"
     >
-      <input
+      <textarea
         value={s.name}
         onChange={(e) => setS({ ...s, name: e.target.value })}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault()
+            event.currentTarget.blur()
+          }
+        }}
+        rows={1}
         aria-label={t('fest.name')}
-        className={cn(fieldCls, 'text-base font-medium')}
+        className="block w-full resize-none overflow-hidden bg-transparent t-subtitle text-balance text-text outline-none [field-sizing:content] focus-visible:ring-0"
       />
 
-      {gameId && (
-        <ActivityLog
-          gameId={gameId}
-          subjectType="festival"
-          subjectId={f.id}
-          statusOptions={STATUSES.map((status) => ({ value: status, label: t(`fest.st.${status}`) }))}
-          onChanged={onSaved}
-        />
-      )}
+      <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1fr)_272px]">
+        <main className="min-w-0 space-y-4">
+          <section className={festivalDrawerPanel}>
+            <h2 className={festivalDrawerSectionLabel}>{t('fest.description')}</h2>
+            <textarea
+              rows={6}
+              value={s.description}
+              onChange={(e) => setS({ ...s, description: e.target.value })}
+              className={cn(fieldCls, 'mt-2 resize-y leading-relaxed')}
+            />
+          </section>
 
-      <div className="grid grid-cols-2 gap-3">
-        {status && (
-          <Field label={t('fest.col.status')}>
-            <select value={status} onChange={(e) => onStatusChange(e.target.value)} className={fieldCls}>
-              {STATUSES.map((value) => (
-                <option key={value} value={value}>
-                  {t(`fest.st.${value}`)}
-                </option>
-              ))}
-            </select>
-          </Field>
-        )}
-        <Field label={t('fest.type')}>
-          <input value={s.type} onChange={(e) => setS({ ...s, type: e.target.value })} className={fieldCls} />
-        </Field>
-        <Field label={t('common.costUsd')}>
-          <input
-            type="number"
-            min={0}
-            placeholder={t('fest.feeFree')}
-            value={s.costUsd}
-            onChange={(e) => setS({ ...s, costUsd: e.target.value })}
-            className={fieldCls}
-          />
-        </Field>
-        <Field label={t('fest.festDate')}>
-          <input
-            type="date"
-            value={s.startDate}
-            onChange={(e) => setS({ ...s, startDate: e.target.value })}
-            className={fieldCls}
-          />
-        </Field>
-        <Field label={t('fest.endDate')}>
-          <input
-            type="date"
-            value={s.endDate}
-            onChange={(e) => setS({ ...s, endDate: e.target.value })}
-            className={fieldCls}
-          />
-        </Field>
-        <Field label={t('fest.deadline')}>
-          <input
-            type="date"
-            value={s.applyDeadline}
-            onChange={(e) => setS({ ...s, applyDeadline: e.target.value })}
-            className={fieldCls}
-          />
-        </Field>
-        <Field label={t('fest.url')}>
-          <input
-            placeholder="https://…"
-            value={s.url}
-            onChange={(e) => setS({ ...s, url: e.target.value })}
-            className={fieldCls}
-          />
-        </Field>
-        <Field label={t('fest.applyUrl')}>
-          <input
-            placeholder="https://…"
-            value={s.applyUrl}
-            onChange={(e) => setS({ ...s, applyUrl: e.target.value })}
-            className={fieldCls}
-          />
-        </Field>
-        <Field label={t('fest.organizer')}>
-          <input value={s.organizer} onChange={(e) => setS({ ...s, organizer: e.target.value })} className={fieldCls} />
-        </Field>
-        <Field label={t('fest.steamEvent')}>
-          <select
-            value={s.steamEvent}
-            onChange={(e) => setS({ ...s, steamEvent: e.target.value })}
-            className={fieldCls}
-          >
-            {TRI.map((v) => (
-              <option key={v} value={v}>
-                {triLabel(v)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={t('fest.steamFeature')}>
-          <select
-            value={s.steamFeature}
-            onChange={(e) => setS({ ...s, steamFeature: e.target.value })}
-            className={fieldCls}
-          >
-            {TRI.map((v) => (
-              <option key={v} value={v}>
-                {triLabel(v)}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={t('fest.media')}>
-          <select value={s.media} onChange={(e) => setS({ ...s, media: e.target.value })} className={fieldCls}>
-            <option value="">{t('fest.tri.unknown')}</option>
-            <option value="yes">{t('fest.tri.yes')}</option>
-            <option value="no">{t('fest.tri.no')}</option>
-          </select>
-        </Field>
-        <Field label={t('fest.offline')}>
-          <select value={s.offline} onChange={(e) => setS({ ...s, offline: e.target.value })} className={fieldCls}>
-            <option value="">{t('fest.tri.unknown')}</option>
-            <option value="yes">{t('fest.tri.yes')}</option>
-            <option value="no">{t('fest.tri.no')}</option>
-          </select>
-        </Field>
-      </div>
+          <section className={festivalDrawerPanel}>
+            <h2 className={festivalDrawerSectionLabel}>{t('fest.notes')}</h2>
+            <textarea
+              rows={4}
+              value={s.notes}
+              onChange={(e) => setS({ ...s, notes: e.target.value })}
+              className={cn(fieldCls, 'mt-2 resize-y leading-relaxed')}
+            />
+          </section>
 
-      <Field label={t('fest.description')}>
-        <textarea
-          rows={3}
-          value={s.description}
-          onChange={(e) => setS({ ...s, description: e.target.value })}
-          className={cn(fieldCls, 'resize-y leading-relaxed')}
-        />
-      </Field>
-      <Field label={t('fest.notes')}>
-        <textarea
-          rows={2}
-          value={s.notes}
-          onChange={(e) => setS({ ...s, notes: e.target.value })}
-          className={cn(fieldCls, 'resize-y leading-relaxed')}
-        />
-      </Field>
+          {gameId && (
+            <section className={festivalDrawerPanel}>
+              <ActivityLog
+                gameId={gameId}
+                subjectType="festival"
+                subjectId={f.id}
+                statusOptions={STATUSES.map((status) => ({ value: status, label: t(`fest.st.${status}`) }))}
+                onChanged={onSaved}
+              />
+            </section>
+          )}
+        </main>
 
-      <div className="mt-2 flex items-center gap-2 border-t border-border pt-3">
-        <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>
-          {saved ? t('fest.saved') : t('fest.save')}
-        </Button>
-        {gameId && (
-          <Button size="sm" variant="outline" onClick={onAskCat}>
-            <Sparkles className="h-3.5 w-3.5" />
-            {t('fest.askCat')}
-          </Button>
-        )}
-        <Button size="sm" variant="ghost" className="ml-auto" onClick={onDelete}>
-          <Trash2 className="h-4 w-4 text-alarm" />
-          {t('common.delete')}
-        </Button>
+        <aside className="min-w-0 space-y-3 md:sticky md:top-0">
+          <section className={festivalDrawerPanel}>
+            <div className="grid gap-3">
+              {status && (
+                <Field label={t('fest.col.status')}>
+                  <StatusSelect
+                    value={status as FestivalStatus}
+                    options={STATUSES.map((value) => ({ value, label: t(`fest.st.${value}`) }))}
+                    onChange={onStatusChange}
+                    toneClassName={CARD_STATE_STYLES[FESTIVAL_STATUS_TONES[status as FestivalStatus]].control}
+                    ariaLabel={t('fest.col.status')}
+                    className="w-full"
+                  />
+                </Field>
+              )}
+              <Field label={t('fest.type')}>
+                <input value={s.type} onChange={(e) => setS({ ...s, type: e.target.value })} className={fieldCls} />
+              </Field>
+              <Field label={t('common.costUsd')}>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder={t('fest.feeFree')}
+                  value={s.costUsd}
+                  onChange={(e) => setS({ ...s, costUsd: e.target.value })}
+                  className={fieldCls}
+                />
+              </Field>
+              <Field label={t('fest.festDate')}>
+                <input
+                  type="date"
+                  value={s.startDate}
+                  onChange={(e) => setS({ ...s, startDate: e.target.value })}
+                  className={fieldCls}
+                />
+              </Field>
+              <Field label={t('fest.endDate')}>
+                <input
+                  type="date"
+                  value={s.endDate}
+                  onChange={(e) => setS({ ...s, endDate: e.target.value })}
+                  className={fieldCls}
+                />
+              </Field>
+              <Field label={t('fest.deadline')}>
+                <input
+                  type="date"
+                  value={s.applyDeadline}
+                  onChange={(e) => setS({ ...s, applyDeadline: e.target.value })}
+                  className={fieldCls}
+                />
+              </Field>
+            </div>
+          </section>
+
+          <section className={festivalDrawerPanel}>
+            <div className="grid gap-3">
+              <Field label={t('fest.organizer')}>
+                <input
+                  value={s.organizer}
+                  onChange={(e) => setS({ ...s, organizer: e.target.value })}
+                  className={fieldCls}
+                />
+              </Field>
+              <Field label={t('fest.url')}>
+                <input
+                  placeholder="https://…"
+                  value={s.url}
+                  onChange={(e) => setS({ ...s, url: e.target.value })}
+                  className={fieldCls}
+                />
+              </Field>
+              <Field label={t('fest.applyUrl')}>
+                <input
+                  placeholder="https://…"
+                  value={s.applyUrl}
+                  onChange={(e) => setS({ ...s, applyUrl: e.target.value })}
+                  className={fieldCls}
+                />
+              </Field>
+            </div>
+          </section>
+
+          <section className={festivalDrawerPanel}>
+            <div className="grid gap-3">
+              <Field label={t('fest.steamEvent')}>
+                <select
+                  value={s.steamEvent}
+                  onChange={(e) => setS({ ...s, steamEvent: e.target.value })}
+                  className={fieldCls}
+                >
+                  {TRI.map((v) => (
+                    <option key={v} value={v}>
+                      {triLabel(v)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={t('fest.steamFeature')}>
+                <select
+                  value={s.steamFeature}
+                  onChange={(e) => setS({ ...s, steamFeature: e.target.value })}
+                  className={fieldCls}
+                >
+                  {TRI.map((v) => (
+                    <option key={v} value={v}>
+                      {triLabel(v)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label={t('fest.media')}>
+                <select value={s.media} onChange={(e) => setS({ ...s, media: e.target.value })} className={fieldCls}>
+                  <option value="">{t('fest.tri.unknown')}</option>
+                  <option value="yes">{t('fest.tri.yes')}</option>
+                  <option value="no">{t('fest.tri.no')}</option>
+                </select>
+              </Field>
+              <Field label={t('fest.offline')}>
+                <select
+                  value={s.offline}
+                  onChange={(e) => setS({ ...s, offline: e.target.value })}
+                  className={fieldCls}
+                >
+                  <option value="">{t('fest.tri.unknown')}</option>
+                  <option value="yes">{t('fest.tri.yes')}</option>
+                  <option value="no">{t('fest.tri.no')}</option>
+                </select>
+              </Field>
+            </div>
+          </section>
+
+          <div className="flex flex-wrap items-center gap-1 pt-1">
+            <Button size="sm" onClick={() => save.mutate()} disabled={save.isPending}>
+              {saved ? t('fest.saved') : t('fest.save')}
+            </Button>
+            {gameId && (
+              <Button size="sm" variant="ghost" onClick={onAskCat}>
+                <Sparkles className="h-3.5 w-3.5 text-accent" />
+                {t('fest.askCat')}
+              </Button>
+            )}
+            <Button size="icon" variant="ghost" className="ml-auto" onClick={onDelete}>
+              <Trash2 className="h-4 w-4 text-alarm" />
+            </Button>
+          </div>
+        </aside>
       </div>
     </DetailDrawer>
   )

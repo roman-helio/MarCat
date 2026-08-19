@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useId, useRef } from 'react'
 import { TriangleAlert } from 'lucide-react'
 import { useConfirm } from '@/store/confirm'
 import { useModal } from '@/lib/modal'
@@ -11,6 +11,7 @@ export function ConfirmHost() {
   const current = useConfirm((s) => s.current)
   const settle = useConfirm((s) => s.settle)
   const ref = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   useModal(ref, () => settle(false), !!current)
   if (!current) return null
 
@@ -25,6 +26,7 @@ export function ConfirmHost() {
         ref={ref}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
         className="enter w-full max-w-md rounded-[14px] bg-surface p-2 shadow-2xl"
       >
         <div className={current.danger ? 'flex gap-3 rounded-[10px] bg-red-50 p-3 dark:bg-red-950/25' : 'p-3'}>
@@ -34,8 +36,17 @@ export function ConfirmHost() {
             </span>
           )}
           <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold text-balance text-text">{current.title}</h2>
-            {current.body && <p className="mt-1.5 text-sm text-pretty text-muted">{current.body}</p>}
+            <h2
+              id={titleId}
+              className="break-words text-base font-semibold text-balance text-text [overflow-wrap:anywhere]"
+            >
+              {current.title}
+            </h2>
+            {current.body && (
+              <p className="mt-1.5 break-words text-sm text-pretty text-muted [overflow-wrap:anywhere]">
+                {current.body}
+              </p>
+            )}
           </div>
         </div>
         <div className="flex justify-end gap-2 px-2 pb-1 pt-3">

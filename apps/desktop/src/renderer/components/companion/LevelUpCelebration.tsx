@@ -81,7 +81,7 @@ export function LevelUpCelebration({
           <span aria-hidden className="text-accent">
             →
           </span>
-          <span className="text-lg font-medium text-accent">Lv{level}</span>
+          <span className="t-subtitle text-accent">Lv{level}</span>
         </div>
 
         <Button className="mt-5 w-full" onClick={onClose} autoFocus>

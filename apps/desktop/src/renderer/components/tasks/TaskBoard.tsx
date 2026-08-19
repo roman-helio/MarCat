@@ -20,7 +20,8 @@ function Card({ task, onSelect }: { task: TaskWithTags; onSelect: (id: string) =
       task={task}
       onOpen={onSelect}
       style={transform ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` } : undefined}
-      className={cn('cursor-grab active:cursor-grabbing', isDragging && 'opacity-50')}
+      dragging={isDragging}
+      className="cursor-grab active:cursor-grabbing"
       {...listeners}
       {...attributes}
     />

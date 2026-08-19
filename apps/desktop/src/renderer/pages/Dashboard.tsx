@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from 'react'
+import { useEffect, useId, useRef, useState, type ComponentType } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -17,6 +17,7 @@ import { useUi } from '@/store/ui'
 import { confirm } from '@/store/confirm'
 import { toast } from '@/store/toast'
 import { Button } from '@/components/ui/Button'
+import { PageHeader } from '@/components/ui/Screen'
 import { cn, fieldCls } from '@/lib/utils'
 import { useT } from '@/i18n/useT'
 import { LoadingState, QueryError } from '@/components/ui/QueryState'
@@ -89,21 +90,47 @@ function GameForm({
 }) {
   const t = useT()
   const [values, setValues] = useState(initial)
-  const set = (k: keyof GameFormValues) => (e: React.ChangeEvent<HTMLInputElement>) =>
+  const [nameError, setNameError] = useState(false)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const formId = useId().replace(/:/g, '')
+  const nameErrorId = `${formId}-name-error`
+  const set = (k: keyof GameFormValues) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setValues((v) => ({ ...v, [k]: e.target.value }))
+    if (k === 'name' && e.target.value.trim()) setNameError(false)
+  }
 
   return (
     <form
+      noValidate
       className="grid gap-3"
       onSubmit={(e) => {
         e.preventDefault()
-        if (values.name.trim()) onSubmit(values)
+        if (!values.name.trim()) {
+          setNameError(true)
+          nameRef.current?.focus()
+          return
+        }
+        onSubmit(values)
       }}
     >
       <div className="grid gap-3 sm:grid-cols-2">
         <label className={labelCls}>
           {t('form.name')}
-          <input className={fieldCls} value={values.name} onChange={set('name')} autoFocus={!autoFocusLink} />
+          <input
+            ref={nameRef}
+            className={fieldCls}
+            value={values.name}
+            onChange={set('name')}
+            autoFocus={!autoFocusLink}
+            required
+            aria-invalid={nameError || undefined}
+            aria-describedby={nameError ? nameErrorId : undefined}
+          />
+          {nameError && (
+            <span id={nameErrorId} className="text-xs font-normal text-alarm">
+              {t('form.nameRequired')}
+            </span>
+          )}
         </label>
         <label className={labelCls}>
           {t('form.releaseDate')}
@@ -138,6 +165,7 @@ function GameForm({
               <button
                 key={p.id}
                 type="button"
+                aria-pressed={on}
                 onClick={() =>
                   setValues((v) => ({
                     ...v,
@@ -156,22 +184,28 @@ function GameForm({
         </div>
         {/* one URL field per enabled platform (Steam page, web build, store…). */}
         <div className="mt-1 grid gap-1.5">
-          {PLATFORMS.filter((p) => values.platforms.some((x) => x.id === p.id)).map((p) => (
-            <div key={p.id} className="flex items-center gap-2">
-              <span className="w-24 shrink-0 text-xs text-muted">{t(p.key)}</span>
-              <input
-                className={cn(fieldCls, 'flex-1')}
-                placeholder={p.placeholder}
-                value={values.platforms.find((x) => x.id === p.id)?.url ?? ''}
-                onChange={(e) =>
-                  setValues((v) => ({
-                    ...v,
-                    platforms: v.platforms.map((x) => (x.id === p.id ? { ...x, url: e.target.value } : x)),
-                  }))
-                }
-              />
-            </div>
-          ))}
+          {PLATFORMS.filter((p) => values.platforms.some((x) => x.id === p.id)).map((p) => {
+            const inputId = `${formId}-platform-${p.id}`
+            return (
+              <div key={p.id} className="flex items-center gap-2">
+                <label htmlFor={inputId} className="w-24 shrink-0 text-xs text-muted">
+                  {t(p.key)}
+                </label>
+                <input
+                  id={inputId}
+                  className={cn(fieldCls, 'flex-1')}
+                  placeholder={p.placeholder}
+                  value={values.platforms.find((x) => x.id === p.id)?.url ?? ''}
+                  onChange={(e) =>
+                    setValues((v) => ({
+                      ...v,
+                      platforms: v.platforms.map((x) => (x.id === p.id ? { ...x, url: e.target.value } : x)),
+                    }))
+                  }
+                />
+              </div>
+            )
+          })}
         </div>
       </div>
       <div className={labelCls}>
@@ -184,6 +218,7 @@ function GameForm({
               <button
                 key={option.type}
                 type="button"
+                aria-pressed={on}
                 onClick={() =>
                   setValues((current) => ({
                     ...current,
@@ -206,10 +241,14 @@ function GameForm({
           {OFFICIAL_LINK_OPTIONS.filter((option) => values.officialLinks.some((link) => link.type === option.type)).map(
             (option) => {
               const link = values.officialLinks.find((item) => item.type === option.type)
+              const inputId = `${formId}-official-${option.type}`
               return (
                 <div key={option.type} className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
-                  <span className="w-24 shrink-0 text-xs text-muted">{t(option.labelKey)}</span>
+                  <label htmlFor={inputId} className="w-24 shrink-0 text-xs text-muted">
+                    {t(option.labelKey)}
+                  </label>
                   <input
+                    id={inputId}
                     className={cn(fieldCls, 'min-w-0 flex-1')}
                     placeholder={option.placeholder}
                     value={link?.url ?? ''}
@@ -227,6 +266,7 @@ function GameForm({
                     <input
                       className={cn(fieldCls, 'w-full sm:w-36')}
                       placeholder={t('form.linkLabel')}
+                      aria-label={t('form.linkLabel')}
                       value={link?.label ?? ''}
                       onChange={(event) =>
                         setValues((current) => ({
@@ -245,7 +285,7 @@ function GameForm({
         </div>
       </div>
       <div className="flex gap-2">
-        <Button type="submit" size="sm" disabled={pending || !values.name.trim()}>
+        <Button type="submit" size="sm" disabled={pending}>
           {submitLabel}
         </Button>
         {onCancel && (
@@ -520,19 +560,19 @@ export function Dashboard() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="t-title">{t('dash.focusTitle')}</h1>
-          <p className="mt-1 t-hint">{t('dash.focusSubtitle')}</p>
-        </div>
-        {!creating && (
-          <Button size="sm" onClick={() => setCreating(true)}>
-            <Plus className="h-4 w-4" />
-            {t('dash.newGame')}
-          </Button>
-        )}
-      </header>
+    <div className="page-stack">
+      <PageHeader
+        title={t('dash.focusTitle')}
+        subtitle={t('dash.focusSubtitle')}
+        actions={
+          !creating ? (
+            <Button size="sm" onClick={() => setCreating(true)}>
+              <Plus className="h-4 w-4" />
+              {t('dash.newGame')}
+            </Button>
+          ) : undefined
+        }
+      />
 
       {error && (
         <div className="rounded-[var(--radius)] border border-alarm bg-alarm/10 px-3 py-2 text-sm text-alarm">

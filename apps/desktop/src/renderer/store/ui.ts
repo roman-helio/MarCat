@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
 export type SectionViewStateValue = string | number | boolean | null
+export const EMPTY_SECTION_VIEW_STATE: Readonly<Record<string, SectionViewStateValue>> = Object.freeze({})
 
 interface UiState {
   /** Currently selected game (workspace), or null on the All-Games dashboard. */
@@ -49,12 +50,17 @@ export const useUi = create<UiState>()(
         set((state) => ({ sidebarSections: { ...state.sidebarSections, [section]: expanded } })),
       sectionViewStates: {},
       setSectionViewState: (section, patch) =>
-        set((state) => ({
-          sectionViewStates: {
-            ...(state.sectionViewStates ?? {}),
-            [section]: { ...(state.sectionViewStates?.[section] ?? {}), ...patch },
-          },
-        })),
+        set((state) => {
+          const current = state.sectionViewStates?.[section] ?? EMPTY_SECTION_VIEW_STATE
+          const changed = Object.entries(patch).some(([key, value]) => current[key] !== value)
+          if (!changed) return state
+          return {
+            sectionViewStates: {
+              ...(state.sectionViewStates ?? {}),
+              [section]: { ...current, ...patch },
+            },
+          }
+        }),
     }),
     {
       name: 'marcat-ui',

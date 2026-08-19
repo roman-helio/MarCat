@@ -3,9 +3,11 @@ import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Bot,
+  AlertTriangle,
   CheckCircle2,
   ChevronDown,
   DatabaseBackup,
+  ExternalLink,
   FolderKanban,
   KeyRound,
   PlugZap,
@@ -24,18 +26,50 @@ import { toast } from '@/store/toast'
 import { useT } from '@/i18n/useT'
 import { Button } from '@/components/ui/Button'
 import { Segmented } from '@/components/ui/Toggle'
+import { PageHeader } from '@/components/ui/Screen'
 import { LoadingState, QueryError } from '@/components/ui/QueryState'
 import { WhatsNewDialog } from '@/components/settings/WhatsNewDialog'
 import { WorkspaceSettings } from '@/components/settings/WorkspaceSettings'
 
 const PROVIDERS = [
-  { provider: 'twitterapi' as const, label: 'X / Twitter — twitterapi.io', paid: true },
-  { provider: 'scrapecreators' as const, label: 'Instagram + TikTok — ScrapeCreators', paid: true },
-  { provider: 'youtube' as const, label: 'YouTube — Data API (free)', paid: false },
-  { provider: 'steamfinancial' as const, label: 'Steamworks — Financial API', paid: false },
-  { provider: 'gmass' as const, label: 'GMass — Campaign API', paid: false },
+  {
+    provider: 'scrapecreators' as const,
+    label: 'Creator Discovery — Instagram + TikTok + X',
+    serviceName: 'ScrapeCreators',
+    setupUrl: 'https://app.scrapecreators.com/',
+    paid: true,
+  },
+  {
+    provider: 'twitterapi' as const,
+    label: 'X / Twitter — account monitoring',
+    serviceName: 'X Developer Console',
+    setupUrl: 'https://console.x.com/',
+    paid: true,
+  },
+  {
+    provider: 'youtube' as const,
+    label: 'YouTube — Data API (free)',
+    serviceName: 'Google Cloud Console',
+    setupUrl: 'https://console.cloud.google.com/apis/library/youtube.googleapis.com',
+    paid: false,
+  },
+  {
+    provider: 'steamfinancial' as const,
+    label: 'Steamworks — Financial API',
+    serviceName: 'Steamworks Web API',
+    setupUrl: 'https://partner.steamgames.com/doc/webapi_overview/auth?language=english',
+    paid: false,
+  },
+  {
+    provider: 'gmass' as const,
+    label: 'GMass — Campaign API',
+    serviceName: 'GMass API',
+    setupUrl: 'https://www.gmass.co/features/api',
+    paid: false,
+  },
 ]
 type ConnectorProvider = (typeof PROVIDERS)[number]['provider']
+type ConnectorId = ConnectorProvider | 'devhub' | 'atlassian'
 type McpClient = 'codex' | 'claude'
 const modes: ThemeMode[] = ['system', 'light', 'dark']
 const langs: { id: Lang; label: string }[] = [
@@ -56,8 +90,8 @@ function isSettingsTab(value: unknown): value is SettingsTab {
   return SETTINGS_TABS.some((tab) => tab.id === value)
 }
 
-function isConnectorProvider(value: unknown): value is ConnectorProvider {
-  return PROVIDERS.some((provider) => provider.provider === value)
+function isConnectorId(value: unknown): value is ConnectorId {
+  return value === 'devhub' || value === 'atlassian' || PROVIDERS.some((provider) => provider.provider === value)
 }
 
 function isMcpClient(value: unknown): value is McpClient {
@@ -139,20 +173,34 @@ export function Settings() {
   const [mcpClient, setMcpClientState] = useState<McpClient>(() =>
     isMcpClient(rememberedSettingsState?.mcpClient) ? rememberedSettingsState.mcpClient : 'codex',
   )
-  const [openConnector, setOpenConnectorState] = useState<ConnectorProvider | null>(() => {
-    if (isConnectorProvider(requestedConnector)) return requestedConnector
-    return isConnectorProvider(rememberedSettingsState?.openConnector) ? rememberedSettingsState.openConnector : null
+  const [openConnector, setOpenConnectorState] = useState<ConnectorId | null>(() => {
+    if (isConnectorId(requestedConnector)) return requestedConnector
+    return isConnectorId(rememberedSettingsState?.openConnector) ? rememberedSettingsState.openConnector : null
   })
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const qc = useQueryClient()
 
   const ai = useQuery({ queryKey: ['ai-available'], queryFn: () => trpc.ai.available.query() })
+  const verifyAiAuth = useMutation({
+    mutationFn: (provider: 'claude' | 'codex') => trpc.ai.verifyAuth.mutate({ provider }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ai-available'] }),
+    onError: toast.fromError,
+  })
+  const loginClaude = useMutation({
+    mutationFn: () => trpc.ai.loginClaude.mutate(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ai-available'] })
+      toast.success(t('set.aiLoginDone'))
+    },
+    onError: toast.fromError,
+  })
   const saveToken = useMutation({
     mutationFn: () => trpc.ai.setToken.mutate({ token }),
     onSuccess: () => {
       setToken('')
-      qc.invalidateQueries({ queryKey: ['ai-available'] })
+      verifyAiAuth.mutate('claude')
     },
+    onError: toast.fromError,
   })
   const saveAiProvider = useMutation({
     mutationFn: (provider: 'claude' | 'codex') => trpc.ai.setProvider.mutate({ provider }),
@@ -185,6 +233,10 @@ export function Settings() {
   const mcp = useQuery({ queryKey: ['mcp-info'], queryFn: () => trpc.system.mcpInfo.query() })
   const release = useQuery({ queryKey: ['release-info'], queryFn: () => trpc.system.releaseInfo.query() })
   const devhub = useQuery({ queryKey: ['devhub-status'], queryFn: () => trpc.system.devhubStatus.query() })
+  const atlassian = useQuery({
+    queryKey: ['atlassian-status'],
+    queryFn: () => trpc.system.atlassianStatus.query(),
+  })
   const backups = useQuery({ queryKey: ['backups'], queryFn: () => trpc.system.listBackups.query() })
   const [backupMsg, setBackupMsg] = useState<string | null>(null)
   const [restored, setRestored] = useState(false)
@@ -217,20 +269,28 @@ export function Settings() {
         2,
       )
     : ''
-  const codexMcpCommand = mcp.data
-    ? `codex mcp add marcat --env "MARCAT_DB=${mcp.data.dbPath.replaceAll('"', '\\"')}" -- node "${mcp.data.serverPath.replaceAll('"', '\\"')}"`
-    : ''
+  const codexMcpCommand = mcp.data ? `codex mcp remove marcat\ncodex mcp add marcat --url ${mcp.data.url}` : ''
   const mcpSetup = mcpClient === 'codex' ? codexMcpCommand : mcpJson
+  const atlassianMcpCommand =
+    mcpClient === 'codex'
+      ? 'codex mcp add atlassian --url https://mcp.atlassian.com/v1/mcp/authv2'
+      : 'claude mcp add --transport http atlassian https://mcp.atlassian.com/v1/mcp/authv2'
   const copyMcp = () => {
     void navigator.clipboard?.writeText(mcpSetup)
     setMcpCopied(true)
     window.setTimeout(() => setMcpCopied(false), 1500)
   }
+  const [atlassianCopied, setAtlassianCopied] = useState(false)
+  const copyAtlassianMcp = () => {
+    void navigator.clipboard?.writeText(atlassianMcpCommand)
+    setAtlassianCopied(true)
+    window.setTimeout(() => setAtlassianCopied(false), 1500)
+  }
 
   useEffect(() => {
     if (!requestedConnector) return
     setActiveTab('integrations')
-    const connector = isConnectorProvider(requestedConnector) ? requestedConnector : null
+    const connector = isConnectorId(requestedConnector) ? requestedConnector : null
     if (connector) setOpenConnectorState(connector)
     setSectionViewState(SETTINGS_VIEW_KEY, { tab: 'integrations', openConnector: connector })
   }, [requestedConnector, setSectionViewState])
@@ -243,10 +303,11 @@ export function Settings() {
   const selectMcpClient = (client: McpClient) => {
     setMcpClientState(client)
     setMcpCopied(false)
+    setAtlassianCopied(false)
     setSectionViewState(SETTINGS_VIEW_KEY, { mcpClient: client })
   }
 
-  const toggleConnector = (provider: ConnectorProvider) => {
+  const toggleConnector = (provider: ConnectorId) => {
     const next = openConnector === provider ? null : provider
     setOpenConnectorState(next)
     setSectionViewState(SETTINGS_VIEW_KEY, { openConnector: next })
@@ -269,8 +330,15 @@ export function Settings() {
     document.getElementById(`settings-tab-${nextTab}`)?.focus()
   }
 
-  const aiStatusLabel = (status: { available: boolean; authenticated: boolean; authMode: string } | undefined) => {
+  const aiStatusLabel = (
+    status:
+      | { available: boolean; authenticated: boolean; authMode: string; authHealth?: string; checkedAt?: string }
+      | undefined,
+  ) => {
     if (!status?.available) return t('set.aiStatusMissing')
+    if (status.authHealth === 'invalid') return t('set.aiStatusInvalid')
+    if (status.authHealth === 'error') return t('set.aiStatusCheckFailed')
+    if (status.authHealth === 'unverified') return t('set.aiStatusUnverified')
     if (!status.authenticated) return t('set.aiStatusLogin')
     if (status.authMode === 'subscription') return t('set.aiStatusSubscription')
     if (status.authMode === 'oauth_token') return t('set.aiStatusOauth')
@@ -278,12 +346,21 @@ export function Settings() {
     return t('set.aiStatusReady')
   }
 
+  const aiStatusTone = (status: { available: boolean; authenticated: boolean; authHealth?: string } | undefined) => {
+    if (status?.authHealth === 'invalid') return 'text-alarm'
+    if (status?.authHealth === 'error' || status?.authHealth === 'unverified') return 'text-warning'
+    return status?.authenticated ? 'text-success' : 'text-muted'
+  }
+
+  const aiStatusDot = (status: { authenticated: boolean; authHealth?: string } | undefined) => {
+    if (status?.authHealth === 'invalid') return 'bg-alarm'
+    if (status?.authHealth === 'error' || status?.authHealth === 'unverified') return 'bg-warning'
+    return status?.authenticated ? 'bg-success' : 'bg-muted'
+  }
+
   return (
-    <div className="mx-auto max-w-5xl space-y-5">
-      <div>
-        <h1 className="t-title text-balance">{t('set.title')}</h1>
-        <p className="mt-1 text-pretty text-sm text-muted">{t('set.subtitle')}</p>
-      </div>
+    <div className="page-stack">
+      <PageHeader title={t('set.title')} subtitle={t('set.subtitle')} />
 
       <div className="grid items-start gap-4 md:grid-cols-[184px_minmax(0,1fr)] md:gap-6">
         <nav
@@ -324,10 +401,10 @@ export function Settings() {
           role="tabpanel"
           aria-labelledby={`settings-tab-${activeTab}`}
           tabIndex={0}
-          className="enter-stagger min-w-0 space-y-4 focus:outline-none"
+          className="min-w-0 space-y-4 focus:outline-none"
         >
           <header className="px-0.5">
-            <h2 className="text-balance text-lg font-semibold text-text">{t(`set.tab.${activeTab}`)}</h2>
+            <h2 className="t-subtitle text-balance">{t(`set.tab.${activeTab}`)}</h2>
             <p className="mt-1 text-pretty text-sm text-muted">{t(`set.tab.${activeTab}.hint`)}</p>
           </header>
 
@@ -435,7 +512,7 @@ export function Settings() {
                             {provider === 'claude' ? 'Claude Code' : 'Codex CLI'}
                           </span>
                           {selected && (
-                            <span className="ml-auto rounded-full bg-accent/10 px-2 py-1 text-[11px] text-accent">
+                            <span className="ml-auto rounded-full bg-accent/10 px-2 py-1 t-caption text-accent">
                               {t('set.aiSelected')}
                             </span>
                           )}
@@ -443,18 +520,8 @@ export function Settings() {
                         <span className="mt-1.5 block text-pretty text-xs text-muted">
                           {t(provider === 'claude' ? 'set.aiClaudeHint' : 'set.aiCodexHint')}
                         </span>
-                        <span
-                          className={cn(
-                            'mt-2 inline-flex items-center gap-1.5 text-[11px]',
-                            status?.authenticated ? 'text-success' : 'text-muted',
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              'h-1.5 w-1.5 rounded-full',
-                              status?.authenticated ? 'bg-success' : 'bg-muted',
-                            )}
-                          />
+                        <span className={cn('mt-2 inline-flex items-center gap-1.5 t-caption', aiStatusTone(status))}>
+                          <span className={cn('h-1.5 w-1.5 rounded-full', aiStatusDot(status))} />
                           {aiStatusLabel(status)}
                         </span>
                       </button>
@@ -487,6 +554,29 @@ export function Settings() {
                         <p className="mt-0.5 text-pretty text-xs text-muted">{t('set.aiClaudeAuthHint')}</p>
                       </div>
                     </div>
+                    <div className="flex flex-wrap items-center gap-2 rounded-[10px] bg-accent/5 p-3 shadow-[inset_0_0_0_1px_var(--border)]">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium text-text">{t('set.aiLoginTitle')}</div>
+                        <p className="mt-0.5 text-pretty text-xs text-muted">{t('set.aiLoginHint')}</p>
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => loginClaude.mutate()}
+                        disabled={loginClaude.isPending || saveToken.isPending || verifyAiAuth.isPending}
+                      >
+                        <Terminal className="h-4 w-4" aria-hidden />
+                        {loginClaude.isPending
+                          ? t('set.aiLoginPending')
+                          : ai.data?.hasToken || ai.data?.providers.claude.authHealth === 'invalid'
+                            ? t('set.aiRelogin')
+                            : t('set.aiLogin')}
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-3 py-0.5" aria-hidden>
+                      <span className="h-px flex-1 bg-border" />
+                      <span className="t-caption text-muted">{t('set.aiManualToken')}</span>
+                      <span className="h-px flex-1 bg-border" />
+                    </div>
                     <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                       <input
                         type="password"
@@ -498,17 +588,64 @@ export function Settings() {
                       <Button
                         size="sm"
                         onClick={() => saveToken.mutate()}
-                        disabled={!token.trim() || saveToken.isPending}
+                        disabled={
+                          !token.trim() || saveToken.isPending || verifyAiAuth.isPending || loginClaude.isPending
+                        }
                       >
-                        {t('set.aiTokenSave')}
+                        {saveToken.isPending || verifyAiAuth.isPending
+                          ? t('set.aiStatusChecking')
+                          : t('set.aiTokenSave')}
                       </Button>
                     </div>
-                    <p className="text-xs text-muted">
-                      {t('set.aiCurrentStatus')}{' '}
-                      <span className={ai.data?.providers.claude.authenticated ? 'text-success' : 'text-warning'}>
-                        {aiStatusLabel(ai.data?.providers.claude)}
-                      </span>
-                    </p>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-muted" role="status">
+                        {t('set.aiCurrentStatus')}{' '}
+                        <span className={aiStatusTone(ai.data?.providers.claude)}>
+                          {aiStatusLabel(ai.data?.providers.claude)}
+                        </span>
+                        {ai.data?.providers.claude.checkedAt && (
+                          <span className="ml-1">
+                            ·{' '}
+                            {t('set.aiStatusCheckedAt', {
+                              date: new Intl.DateTimeFormat(lang, {
+                                dateStyle: 'medium',
+                                timeStyle: 'short',
+                              }).format(new Date(ai.data.providers.claude.checkedAt)),
+                            })}
+                          </span>
+                        )}
+                      </p>
+                      {ai.data?.hasToken && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => verifyAiAuth.mutate('claude')}
+                          disabled={saveToken.isPending || verifyAiAuth.isPending || loginClaude.isPending}
+                        >
+                          {verifyAiAuth.isPending ? t('set.aiStatusChecking') : t('set.aiVerify')}
+                        </Button>
+                      )}
+                    </div>
+                    {(ai.data?.providers.claude.authHealth === 'invalid' ||
+                      ai.data?.providers.claude.authHealth === 'error') && (
+                      <div
+                        className={cn(
+                          'flex items-start gap-2 rounded-[10px] px-3 py-2 text-xs shadow-[inset_0_0_0_1px_currentColor]',
+                          ai.data.providers.claude.authHealth === 'invalid'
+                            ? 'bg-alarm/5 text-alarm'
+                            : 'bg-warning/5 text-warning',
+                        )}
+                      >
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+                        <p className="text-pretty">
+                          {t(
+                            ai.data.providers.claude.authHealth === 'invalid'
+                              ? 'set.aiStatusInvalidHint'
+                              : 'set.aiStatusCheckFailedHint',
+                          )}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
               </Card>
@@ -518,7 +655,7 @@ export function Settings() {
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
                       <h2 className="text-balance text-base font-semibold text-text">{t('set.mcp')}</h2>
-                      <span className="rounded-full bg-accent/10 px-2 py-1 text-[11px] font-medium text-accent">
+                      <span className="rounded-full bg-accent/10 px-2 py-1 t-caption font-medium text-accent">
                         {t('set.recommended')}
                       </span>
                     </div>
@@ -568,54 +705,131 @@ export function Settings() {
                       {mcpCopied ? t('set.copied') : t('set.copy')}
                     </Button>
                   </div>
-                  <p className="break-all text-[11px] text-muted">
+                  <p className="break-all t-caption text-muted">
                     {t('set.mcpDbHint', { path: mcp.data?.dbPath ?? '' })}
                   </p>
                   <p className="text-pretty text-xs text-muted">{t('set.mcpAfterStep')}</p>
                 </div>
               </Card>
 
-              <Card>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <h2 className="t-section text-balance">{t('set.devhubTitle')}</h2>
-                      <span className="rounded-full bg-surface-2 px-2 py-1 text-[11px] text-muted">
-                        {t('set.optional')}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-pretty text-xs text-muted">{t('set.devhubSeparate')}</p>
-                  </div>
-                  {devhub.data?.connected ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-success">
-                      <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                      {t('set.devhubConnected', { name: devhub.data.serverName ?? 'devhub' })}
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-muted">
-                      <span className="h-1.5 w-1.5 rounded-full bg-muted" />
-                      {t('set.devhubNotConnected')}
-                    </span>
-                  )}
-                </div>
-                <details className="group text-xs text-muted">
-                  <summary className="tap flex min-h-10 cursor-pointer select-none items-center gap-2 rounded-[var(--radius)] text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60">
-                    <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
-                    {t('set.devhubHow')}
-                  </summary>
-                  <ol className="mt-1 list-decimal space-y-1 pl-6 text-pretty">
-                    <li>{t('set.devhub1')}</li>
-                    <li>{t('set.devhub2')}</li>
-                    <li>{t('set.devhub3')}</li>
-                    <li>{t('set.devhub4')}</li>
-                  </ol>
-                </details>
-              </Card>
-
               <Card title={t('set.connectors')}>
                 <p className="text-pretty text-xs text-muted">{t('set.connectorsHint')}</p>
                 <div className="overflow-hidden rounded-[12px] bg-bg shadow-[inset_0_0_0_1px_var(--border)]">
-                  {PROVIDERS.map((provider, index) => {
+                  <div className={cn(requestedConnector === 'devhub' && 'bg-accent/5')}>
+                    <button
+                      type="button"
+                      aria-expanded={openConnector === 'devhub'}
+                      aria-controls="connector-devhub"
+                      onClick={() => toggleConnector('devhub')}
+                      className="tap flex min-h-12 w-full items-center gap-3 px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm text-text">{t('set.devhubTitle')}</span>
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1.5 t-caption',
+                          devhub.data?.connected ? 'text-success' : 'text-muted',
+                        )}
+                      >
+                        <span
+                          className={cn('h-1.5 w-1.5 rounded-full', devhub.data?.connected ? 'bg-success' : 'bg-muted')}
+                        />
+                        {devhub.data?.connected
+                          ? t('set.devhubConnected', { name: devhub.data.serverName ?? 'devhub' })
+                          : t('set.devhubNotConnected')}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'h-4 w-4 shrink-0 text-muted transition-transform duration-200 ease-out',
+                          openConnector === 'devhub' && 'rotate-180',
+                        )}
+                      />
+                    </button>
+                    {openConnector === 'devhub' && (
+                      <div id="connector-devhub" className="space-y-2 px-3 pb-3 text-xs text-muted">
+                        <p className="text-pretty">{t('set.devhubSeparate')}</p>
+                        <div className="font-medium text-text">{t('set.devhubHow')}</div>
+                        <ol className="list-decimal space-y-1 pl-5 text-pretty">
+                          <li>{t('set.devhub1')}</li>
+                          <li>{t('set.devhub2')}</li>
+                          <li>{t('set.devhub3')}</li>
+                          <li>{t('set.devhub4')}</li>
+                        </ol>
+                        <a
+                          href="https://devhub.hgames.org/"
+                          target="_blank"
+                          rel="noreferrer"
+                          className="tap inline-flex min-h-10 items-center gap-1.5 rounded-[var(--radius)] px-2 text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                        >
+                          {t('set.openService', { name: 'DevHub' })}
+                          <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className={cn('border-t border-border', requestedConnector === 'atlassian' && 'bg-accent/5')}>
+                    <button
+                      type="button"
+                      aria-expanded={openConnector === 'atlassian'}
+                      aria-controls="connector-atlassian"
+                      onClick={() => toggleConnector('atlassian')}
+                      className="tap flex min-h-12 w-full items-center gap-3 px-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/60"
+                    >
+                      <span className="min-w-0 flex-1 truncate text-sm text-text">{t('set.atlassianTitle')}</span>
+                      <span
+                        className={cn(
+                          'inline-flex items-center gap-1.5 t-caption',
+                          atlassian.data?.connected ? 'text-success' : 'text-muted',
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            'h-1.5 w-1.5 rounded-full',
+                            atlassian.data?.connected ? 'bg-success' : 'bg-muted',
+                          )}
+                        />
+                        {t(atlassian.data?.connected ? 'set.connectorConnected' : 'set.connectorNotConnected')}
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          'h-4 w-4 shrink-0 text-muted transition-transform duration-200 ease-out',
+                          openConnector === 'atlassian' && 'rotate-180',
+                        )}
+                      />
+                    </button>
+                    {openConnector === 'atlassian' && (
+                      <div id="connector-atlassian" className="space-y-2 px-3 pb-3 text-xs text-muted">
+                        <p className="text-pretty">{t('set.atlassianHint')}</p>
+                        <p className="text-pretty">{t('set.atlassianStep')}</p>
+                        <div className="relative">
+                          <pre className="overflow-auto whitespace-pre-wrap break-all rounded-[10px] bg-surface p-3 pr-28 font-mono text-xs leading-relaxed shadow-[inset_0_0_0_1px_var(--border)]">
+                            {atlassianMcpCommand}
+                          </pre>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={copyAtlassianMcp}
+                            className="absolute right-2 top-2"
+                          >
+                            {atlassianCopied ? t('set.copied') : t('set.copy')}
+                          </Button>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="min-w-0 flex-1 text-pretty">{t('set.atlassianAfter')}</p>
+                          <a
+                            href="https://support.atlassian.com/atlassian-rovo-mcp-server/docs/getting-started-with-the-atlassian-remote-mcp-server/"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="tap inline-flex min-h-10 items-center rounded-[var(--radius)] px-2 text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                          >
+                            {t('set.atlassianDocs')}
+                          </a>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {PROVIDERS.map((provider) => {
                     const providerSpend = spend.data?.find((item) => item.provider === provider.provider)
                     const configured = keyStatus.data?.[provider.provider] ?? false
                     const expanded = openConnector === provider.provider
@@ -623,7 +837,7 @@ export function Settings() {
                       <div
                         key={provider.provider}
                         className={cn(
-                          index > 0 && 'border-t border-border',
+                          'border-t border-border',
                           requestedConnector === provider.provider && 'bg-accent/5',
                         )}
                       >
@@ -636,11 +850,11 @@ export function Settings() {
                         >
                           <span className="min-w-0 flex-1 truncate text-sm text-text">{provider.label}</span>
                           {provider.paid && (
-                            <span className="nums hidden text-[11px] text-muted sm:inline">
+                            <span className="nums hidden t-caption text-muted sm:inline">
                               {t('set.spentToday', { n: (providerSpend?.todayCostUsd ?? 0).toFixed(3) })}
                             </span>
                           )}
-                          <span className={cn('text-[11px]', configured ? 'text-success' : 'text-muted')}>
+                          <span className={cn('t-caption', configured ? 'text-success' : 'text-muted')}>
                             {t(configured ? 'set.connectorConfigured' : 'set.connectorNotConfigured')}
                           </span>
                           <ChevronDown
@@ -672,13 +886,22 @@ export function Settings() {
                               </Button>
                             </div>
                             {provider.provider === 'steamfinancial' && (
-                              <p className="text-pretty text-[11px] leading-relaxed text-muted">
+                              <p className="text-pretty t-caption leading-relaxed text-muted">
                                 {t('set.steamFinancialHint')}
                               </p>
                             )}
                             {provider.provider === 'gmass' && (
-                              <p className="text-pretty text-[11px] leading-relaxed text-muted">{t('set.gmassHint')}</p>
+                              <p className="text-pretty t-caption leading-relaxed text-muted">{t('set.gmassHint')}</p>
                             )}
+                            <a
+                              href={provider.setupUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="tap inline-flex min-h-10 items-center gap-1.5 rounded-[var(--radius)] px-2 text-sm text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                            >
+                              {t('set.openService', { name: provider.serviceName })}
+                              <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+                            </a>
                             {provider.paid && (
                               <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
                                 <span className="nums sm:hidden">

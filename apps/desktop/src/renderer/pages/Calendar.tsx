@@ -13,6 +13,7 @@ import { useModal } from '@/lib/modal'
 import { useUi } from '@/store/ui'
 import { useSettings } from '@/store/settings'
 import { Button } from '@/components/ui/Button'
+import { PageHeader } from '@/components/ui/Screen'
 import { TaskDrawer } from '@/components/tasks/TaskDrawer'
 import { useT } from '@/i18n/useT'
 import { LoadingState, QueryError } from '@/components/ui/QueryState'
@@ -109,8 +110,8 @@ export function Calendar() {
   if (!gameId) return null
 
   return (
-    <div className="space-y-4">
-      <h1 className="t-title">{t('nav.calendar')}</h1>
+    <div className="page-stack-compact">
+      <PageHeader title={t('nav.calendar')} />
       {(tasks.isError || tags.isError) && (
         <QueryError
           error={tasks.error ?? tags.error}

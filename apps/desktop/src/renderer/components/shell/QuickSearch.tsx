@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   ArrowRight,
@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { useUi } from '@/store/ui'
 import { matchesCombo } from '@/store/settings'
 import { useT } from '@/i18n/useT'
+import { useModal } from '@/lib/modal'
 
 type SearchScope = 'all' | 'games' | 'tasks' | 'creators' | 'festivals' | 'insights' | 'activities' | 'sources'
 type SearchResult = Awaited<ReturnType<typeof trpc.search.run.query>>[number]
@@ -65,6 +66,7 @@ export function QuickSearch() {
   const open = useUi((state) => state.searchOpen)
   const setOpen = useUi((state) => state.setSearchOpen)
   const currentGameId = useUi((state) => state.currentGameId)
+  const dialogRef = useRef<HTMLElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const resultsRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
@@ -74,6 +76,9 @@ export function QuickSearch() {
   const pageScope = useMemo(() => scopeForPath(location.pathname), [location.pathname])
   const activeProjectId = location.pathname.match(/^\/g\/([^/]+)/)?.[1] ?? null
   const scopedGameId = activeProjectId ?? currentGameId
+  const close = useCallback(() => setOpen(false), [setOpen])
+
+  useModal(dialogRef, close, open)
 
   const results = useQuery({
     queryKey: ['quick-search', deferredQuery, scope, scope === 'all' ? null : scopedGameId],
@@ -95,21 +100,22 @@ export function QuickSearch() {
         event.preventDefault()
         if (open) inputRef.current?.select()
         else setOpen(true)
-      } else if (open && event.key === 'Escape') {
+      } else if (open && event.key === 'Escape' && !event.defaultPrevented) {
         event.preventDefault()
-        setOpen(false)
+        close()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, setOpen])
+  }, [close, open, setOpen])
 
   useEffect(() => {
     if (!open) return
     setQuery('')
     setScope(pageScope ?? 'all')
     setActiveIndex(0)
-    window.requestAnimationFrame(() => inputRef.current?.focus())
+    const focusTimer = window.setTimeout(() => inputRef.current?.focus(), 0)
+    return () => window.clearTimeout(focusTimer)
   }, [open, pageScope])
 
   useEffect(() => setActiveIndex(0), [deferredQuery, scope])
@@ -122,7 +128,7 @@ export function QuickSearch() {
 
   const openResult = (result: SearchResult) => {
     navigate(pathForResult(result, activeProjectId))
-    setOpen(false)
+    close()
   }
 
   const chooseScope = (next: SearchScope) => {
@@ -140,9 +146,10 @@ export function QuickSearch() {
         'fixed inset-0 z-[90] flex items-start justify-center bg-black/30 px-4 pt-[8vh] transition-[opacity,background-color] duration-150 ease-out motion-reduce:transition-none',
         open ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
       )}
-      onMouseDown={() => setOpen(false)}
+      onMouseDown={close}
     >
       <section
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t('search.open')}
@@ -193,8 +200,8 @@ export function QuickSearch() {
           ) : (
             <button
               type="button"
-              onClick={() => setOpen(false)}
-              className="tap inline-flex h-10 min-w-10 shrink-0 items-center justify-center rounded-[var(--radius)] bg-surface-2 px-2 font-mono text-[10px] text-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+              onClick={close}
+              className="tap inline-flex h-11 min-w-11 shrink-0 items-center justify-center rounded-[var(--radius)] bg-surface-2 px-2 font-mono t-caption text-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
               aria-label={t('common.close')}
             >
               Esc
@@ -292,7 +299,7 @@ export function QuickSearch() {
                       <span className="block truncate text-sm font-medium">{item.title}</span>
                       {item.subtitle && <span className="block truncate t-hint">{item.subtitle}</span>}
                       {item.excerpt && item.excerpt !== item.subtitle && (
-                        <span className="block truncate text-[11px] text-muted/80">{item.excerpt}</span>
+                        <span className="block truncate t-caption text-muted/80">{item.excerpt}</span>
                       )}
                     </span>
                     <span className="shrink-0 t-hint">{t(`search.kind.${item.kind}`)}</span>

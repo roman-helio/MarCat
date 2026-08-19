@@ -9,6 +9,16 @@ declare global {
       chooseProjectFolder: () => Promise<string | null>
       openLocalPath: (path: string) => Promise<{ ok: boolean; error?: string }>
       showFileContextMenu: (request: { path: string | null; openLabel: string; missingLabel: string }) => void
+      reportRendererError: (report: {
+        kind: string
+        message: string
+        stack?: string
+        componentStack?: string
+        route: string
+        title: string
+        scope?: string
+        taskId?: string
+      }) => void
     }
   }
 }

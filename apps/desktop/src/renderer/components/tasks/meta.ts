@@ -1,4 +1,5 @@
 import type { Task } from '@marcat/db'
+import { CARD_STATE_STYLES, type CardStateTone } from '@/components/ui/CardState'
 
 export type TaskStatus = 'todo' | 'doing' | 'blocked' | 'done' | 'cancelled'
 export type TaskPriority = 'low' | 'med' | 'high' | 'urgent'
@@ -10,42 +11,47 @@ export type TaskWithTags = Task & { tags: TaskTag[]; taskKey?: string | null }
 
 export const STATUS_META: Record<
   TaskStatus,
-  { label: string; badge: string; dot: string; column: string; border: string }
+  { label: string; tone: CardStateTone; badge: string; dot: string; column: string; border: string }
 > = {
   todo: {
     label: 'To do',
-    badge: 'bg-surface-2 text-muted',
-    dot: 'bg-muted',
-    column: 'bg-surface-2/45',
-    border: 'border-border-strong',
+    tone: 'neutral',
+    badge: CARD_STATE_STYLES.neutral.badge,
+    dot: CARD_STATE_STYLES.neutral.dot,
+    column: CARD_STATE_STYLES.neutral.column,
+    border: CARD_STATE_STYLES.neutral.columnBorder,
   },
   doing: {
     label: 'In progress',
-    badge: 'bg-info/12 text-info',
-    dot: 'bg-info',
-    column: 'bg-info/[0.045]',
-    border: 'border-info/35',
+    tone: 'info',
+    badge: CARD_STATE_STYLES.info.badge,
+    dot: CARD_STATE_STYLES.info.dot,
+    column: CARD_STATE_STYLES.info.column,
+    border: CARD_STATE_STYLES.info.columnBorder,
   },
   blocked: {
     label: 'Blocked',
-    badge: 'bg-alarm/12 text-alarm',
-    dot: 'bg-alarm',
-    column: 'bg-alarm/[0.045]',
-    border: 'border-alarm/35',
+    tone: 'danger',
+    badge: CARD_STATE_STYLES.danger.badge,
+    dot: CARD_STATE_STYLES.danger.dot,
+    column: CARD_STATE_STYLES.danger.column,
+    border: CARD_STATE_STYLES.danger.columnBorder,
   },
   done: {
     label: 'Done',
-    badge: 'bg-success/12 text-success',
-    dot: 'bg-success',
-    column: 'bg-success/[0.045]',
-    border: 'border-success/35',
+    tone: 'success',
+    badge: CARD_STATE_STYLES.success.badge,
+    dot: CARD_STATE_STYLES.success.dot,
+    column: CARD_STATE_STYLES.success.column,
+    border: CARD_STATE_STYLES.success.columnBorder,
   },
   cancelled: {
     label: 'Cancelled',
-    badge: 'bg-muted/10 text-muted',
-    dot: 'bg-muted/60',
-    column: 'bg-surface-2/30',
-    border: 'border-border',
+    tone: 'danger',
+    badge: CARD_STATE_STYLES.danger.badge,
+    dot: CARD_STATE_STYLES.danger.dot,
+    column: CARD_STATE_STYLES.danger.column,
+    border: CARD_STATE_STYLES.danger.columnBorder,
   },
 }
 

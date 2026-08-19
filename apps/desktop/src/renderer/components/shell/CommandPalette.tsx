@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { useUi } from '@/store/ui'
 import { useSettings, matchesCombo } from '@/store/settings'
 import { useT } from '@/i18n/useT'
+import { useModal } from '@/lib/modal'
 
 interface Cmd {
   id: string
@@ -22,7 +23,11 @@ export function CommandPalette() {
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
   const [idx, setIdx] = useState(0)
+  const panelRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const close = useCallback(() => setOpen(false), [])
+
+  useModal(panelRef, close, open)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -31,13 +36,13 @@ export function CommandPalette() {
         setQ('')
         setIdx(0)
         setOpen((o) => !o)
-      } else if (e.key === 'Escape') {
-        setOpen(false)
+      } else if (e.key === 'Escape' && !e.defaultPrevented) {
+        close()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [paletteHotkey])
+  }, [close, paletteHotkey])
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 0)
   }, [open])
@@ -45,7 +50,7 @@ export function CommandPalette() {
   const cmds = useMemo(() => {
     const go = (path: string) => () => {
       navigate(path)
-      setOpen(false)
+      close()
     }
     const list: Cmd[] = [
       { id: 'all', group: t('cmd.go'), label: t('nav.allGames'), run: go('/') },
@@ -72,12 +77,12 @@ export function CommandPalette() {
       group: t('cmd.action'),
       label: t('comp.askTitle'),
       run: () => {
-        setOpen(false)
+        close()
         setCommandOpen(true)
       },
     })
     return list
-  }, [gameId, navigate, setCommandOpen, t])
+  }, [close, gameId, navigate, setCommandOpen, t])
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase()
@@ -87,11 +92,12 @@ export function CommandPalette() {
 
   if (!open) return null
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-24"
-      onMouseDown={() => setOpen(false)}
-    >
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/30 pt-24" onMouseDown={close}>
       <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('cmd.title')}
         className="enter w-[min(560px,92vw)] overflow-hidden rounded-[var(--radius)] border border-border bg-surface shadow-hard"
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -115,9 +121,10 @@ export function CommandPalette() {
             }
           }}
           placeholder={t('cmd.placeholder')}
+          aria-label={t('cmd.placeholder')}
           className="w-full border-b border-border bg-surface px-3 py-2.5 text-sm text-text outline-none"
         />
-        <div className="enter-stagger max-h-80 overflow-auto py-1">
+        <div className="max-h-80 overflow-auto py-1">
           {filtered.length === 0 && <p className="px-3 py-2 text-sm text-muted">{t('cmd.empty')}</p>}
           {filtered.map((c, i) => (
             <button

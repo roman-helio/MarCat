@@ -4,6 +4,7 @@ import { daysUntil, isOverdue } from '@/lib/date'
 import { cn } from '@/lib/utils'
 import { useT } from '@/i18n/useT'
 import { SortableHeader } from '@/components/ui/DataList'
+import { CARD_STATE_STYLES, CardStateBadge } from '@/components/ui/CardState'
 import { TagBadge } from './TagBadge'
 import { PRIORITY_META, STATUS_META, type TaskWithTags } from './meta'
 import type { SortDirection, TaskSortKey } from './taskSort'
@@ -89,8 +90,8 @@ export function TaskListView({
       <div key={task.id}>
         <div
           className={cn(
-            'group/task-row flex min-h-10 items-center gap-x-2 border-b border-border bg-surface px-3 text-sm transition-colors last:border-b-0 hover:bg-surface-2/60',
-            overdue && 'bg-red-50/80 hover:bg-red-100/80 dark:bg-red-950/20 dark:hover:bg-red-950/30',
+            'group/task-row flex min-h-10 items-center gap-x-2 border-b border-l-[4px] border-b-border bg-surface px-3 text-sm transition-colors last:border-b-0 hover:bg-surface-2/60',
+            CARD_STATE_STYLES[STATUS_META[task.status].tone].spine,
             checked && 'bg-accent/5',
           )}
         >
@@ -109,13 +110,11 @@ export function TaskListView({
             <span className="nums min-w-0 flex-1 truncate text-xs text-muted">{task.taskKey ?? '—'}</span>
           </div>
           <span className="w-28 shrink-0">
-            <span className={cn('inline-flex rounded-[5px] px-1.5 py-0.5 text-[11px]', STATUS_META[task.status].badge)}>
-              {t(`status.${task.status}`)}
-            </span>
+            <CardStateBadge tone={STATUS_META[task.status].tone}>{t(`status.${task.status}`)}</CardStateBadge>
           </span>
           <span className="w-24 shrink-0">
             <span
-              className={cn('inline-flex rounded-[5px] px-1.5 py-0.5 text-[11px]', PRIORITY_META[task.priority].cls)}
+              className={cn('inline-flex rounded-[5px] px-1.5 py-0.5 t-caption', PRIORITY_META[task.priority].cls)}
             >
               {t(`prio.${task.priority}`)}
             </span>
@@ -170,7 +169,7 @@ export function TaskListView({
               <TagBadge key={tag.id} tag={tag} className="max-w-28" />
             ))}
             {task.tags.length > 2 && (
-              <span className="nums shrink-0 text-[11px] text-muted">+{task.tags.length - 2}</span>
+              <span className="nums shrink-0 t-caption text-muted">+{task.tags.length - 2}</span>
             )}
           </div>
           <span

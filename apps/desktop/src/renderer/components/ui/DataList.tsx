@@ -27,6 +27,7 @@ export function SortableHeader({
   direction,
   onClick,
   align = 'left',
+  wrap = false,
   className,
 }: {
   label: string
@@ -34,6 +35,7 @@ export function SortableHeader({
   direction: SortDirection
   onClick: () => void
   align?: 'left' | 'right'
+  wrap?: boolean
   className?: string
 }) {
   return (
@@ -48,7 +50,9 @@ export function SortableHeader({
         className,
       )}
     >
-      <span className="truncate">{label}</span>
+      <span className={cn('truncate', wrap && 'whitespace-normal text-pretty')} title={label}>
+        {label}
+      </span>
       <ArrowDown
         className={cn(
           'h-3 w-3 shrink-0 transition-[opacity,transform] duration-150 ease-out',

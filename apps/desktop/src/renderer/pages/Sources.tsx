@@ -9,8 +9,10 @@ import { useCompanion } from '@/store/companion'
 import { confirm as askConfirm } from '@/store/confirm'
 import { toast } from '@/store/toast'
 import { Button } from '@/components/ui/Button'
+import { PageHeader } from '@/components/ui/Screen'
 import { useT } from '@/i18n/useT'
 import { LoadingState, QueryError } from '@/components/ui/QueryState'
+import { CARD_STATE_STYLES, CardStateBadge, type CardStateTone } from '@/components/ui/CardState'
 
 export function Sources() {
   const t = useT()
@@ -112,11 +114,8 @@ export function Sources() {
           : false
 
   return (
-    <div className="enter-stagger mx-auto max-w-5xl space-y-5">
-      <header>
-        <h1 className="t-title">{t('nav.sources')}</h1>
-        <p className="mt-1 max-w-2xl t-body text-pretty text-muted">{t('src.subtitle')}</p>
-      </header>
+    <div className="page-stack">
+      <PageHeader title={t('nav.sources')} subtitle={t('src.subtitle')} />
 
       {/* add source */}
       <div className="flex flex-wrap items-end gap-2 rounded-[var(--radius)] border border-border bg-surface p-3">
@@ -178,15 +177,24 @@ export function Sources() {
           const info = platformInfo(s.platform)
           const noKey = info?.needsKey && missingKey(info.provider)
           const pending = confirm?.sourceId === s.id
+          const syncing = sync.isPending && sync.variables?.sourceId === s.id
+          const tone: CardStateTone = noKey
+            ? 'warning'
+            : syncing
+              ? 'info'
+              : s.lastStatus === 'error'
+                ? 'danger'
+                : s.lastStatus === 'ok'
+                  ? 'success'
+                  : 'neutral'
           return (
             <div
               key={s.id}
               id={`source-${s.id}`}
               className={cn(
-                'rounded-[var(--radius)] border bg-surface p-3 transition-[border-color,box-shadow] duration-150',
-                focusedSourceId === s.id
-                  ? 'border-accent shadow-[0_0_0_3px_color-mix(in_srgb,var(--accent)_18%,transparent)]'
-                  : 'border-border',
+                'rounded-[10px] border-l-[4px] bg-surface p-3 shadow-hard transition-[box-shadow] duration-150 ease-out',
+                CARD_STATE_STYLES[tone].spine,
+                focusedSourceId === s.id ? 'ring-2 ring-accent/50' : '',
               )}
             >
               <div className="flex items-center gap-3">
@@ -202,14 +210,17 @@ export function Sources() {
                         $
                       </span>
                     )}
-                    {s.lastStatus === 'error' && <span className="text-xs text-alarm">{t('src.error')}</span>}
-                    {s.lastStatus === 'ok' && <span className="text-xs text-success">{t('src.ok')}</span>}
+                    {syncing && <CardStateBadge tone="info">{t('src.sync')}</CardStateBadge>}
+                    {!syncing && s.lastStatus === 'error' && (
+                      <CardStateBadge tone="danger">{t('src.error')}</CardStateBadge>
+                    )}
+                    {!syncing && s.lastStatus === 'ok' && <CardStateBadge tone="success">{t('src.ok')}</CardStateBadge>}
                   </div>
                   <div className="truncate text-xs text-muted">{s.handle}</div>
                 </div>
                 <button
                   onClick={() => setHistoryFor(historyFor === s.id ? null : s.id)}
-                  className="tap nums rounded-[var(--radius)] px-1.5 py-0.5 text-xs text-muted hover:bg-surface-2 hover:text-text"
+                  className="tap nums inline-flex h-10 items-center rounded-[var(--radius)] px-2 text-xs text-muted hover:bg-surface-2 hover:text-text"
                 >
                   {s.lastSyncedAt ? s.lastSyncedAt.slice(0, 10) : t('src.never')}
                 </button>
@@ -228,7 +239,7 @@ export function Sources() {
                 <button
                   onClick={() => askDelete(s.id, info?.label ?? s.platform)}
                   disabled={remove.isPending}
-                  className="tap inline-flex items-center justify-center rounded-[var(--radius)] p-1.5 text-muted hover:bg-surface-2 hover:text-alarm"
+                  className="tap inline-flex h-10 w-10 items-center justify-center rounded-[var(--radius)] text-muted hover:bg-surface-2 hover:text-alarm"
                   aria-label={t('common.delete')}
                   title={t('common.delete')}
                 >

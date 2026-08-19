@@ -124,7 +124,7 @@ export function TaskCreateDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/30" onMouseDown={onClose}>
+    <div className="fixed inset-x-0 bottom-0 top-9 z-40 flex justify-end bg-black/30" onMouseDown={onClose}>
       <form
         ref={panelRef}
         className="enter flex h-full w-[min(760px,100vw)] flex-col overflow-hidden border-l border-border bg-surface shadow-2xl"
@@ -153,7 +153,7 @@ export function TaskCreateDrawer({
             value={title}
             onChange={(event) => setTitle(event.target.value)}
             placeholder={t('tasks.taskTitlePlaceholder')}
-            className="mb-4 w-full bg-transparent text-xl font-medium leading-snug text-text outline-none placeholder:text-muted/60 focus-visible:ring-0"
+            className="mb-4 w-full bg-transparent t-subtitle text-text outline-none placeholder:text-muted/60 focus-visible:ring-0"
           />
           <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1fr)_272px]">
             <main className="min-w-0 space-y-4">
@@ -391,7 +391,7 @@ export function TaskCreateDrawer({
                     ))}
                   </div>
                 )}
-                <p className="mt-2 text-[11px] leading-relaxed text-muted">{t('task.blockerAutomation')}</p>
+                <p className="mt-2 t-caption leading-relaxed text-muted">{t('task.blockerAutomation')}</p>
               </section>
             </aside>
           </div>

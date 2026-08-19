@@ -18,9 +18,10 @@ import { ArrowRight, Trash2, Wand2 } from 'lucide-react'
 import type { TaskDependency } from '@marcat/db'
 import { cn } from '@/lib/utils'
 import { useT } from '@/i18n/useT'
-import { type TaskWithTags } from './meta'
+import { STATUS_META, type TaskWithTags } from './meta'
 import { computeTaskGraphLayout } from './taskGraphLayout'
 import { TaskCardBody } from './TaskCard'
+import { CARD_STATE_STYLES } from '@/components/ui/CardState'
 
 type TaskNodeData = {
   task: TaskWithTags
@@ -36,7 +37,8 @@ function TaskNode({ data, selected }: NodeProps<TaskFlowNode>) {
   return (
     <div
       className={cn(
-        'relative w-[300px] rounded-[10px] bg-surface p-3 text-left transition-[box-shadow,opacity] duration-150 ease-out',
+        'relative w-[300px] rounded-[10px] border-l-[4px] bg-surface p-3 text-left transition-[box-shadow,opacity] duration-150 ease-out',
+        CARD_STATE_STYLES[STATUS_META[task.status].tone].spine,
         finished && 'opacity-55',
       )}
       style={{

@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { NavLink, useLocation, type NavLinkProps } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
@@ -20,6 +20,8 @@ import {
   Lightbulb,
   MessageSquareText,
   Search,
+  Clock3,
+  CircleAlert,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -45,6 +47,7 @@ function SideLink({
   badgeTone = 'accent',
   nested = false,
   section = false,
+  description,
 }: {
   to: string
   end?: NavLinkProps['end']
@@ -55,7 +58,9 @@ function SideLink({
   badgeTone?: BadgeTone
   nested?: boolean
   section?: boolean
+  description?: string
 }) {
+  const descriptionId = useId()
   const shownBadge = Math.min(badge, 99)
   const accessibleLabel = shownBadge > 0 ? `${label}: ${shownBadge}` : label
 
@@ -63,11 +68,12 @@ function SideLink({
     <NavLink
       to={to}
       end={end}
-      title={collapsed ? accessibleLabel : undefined}
+      title={collapsed ? [accessibleLabel, description].filter(Boolean).join('. ') : undefined}
       aria-label={accessibleLabel}
+      aria-describedby={description ? descriptionId : undefined}
       className={({ isActive }) =>
         cn(
-          'relative flex min-h-10 items-center rounded-[var(--radius)] px-2.5 text-sm transition-[color,background-color,transform] hover:translate-x-[2px]',
+          'group relative flex min-h-11 items-center rounded-[var(--radius)] px-2.5 t-control transition-[color,background-color]',
           collapsed ? 'justify-center' : 'gap-2.5',
           nested && !collapsed && 'pl-5',
           isActive
@@ -88,6 +94,19 @@ function SideLink({
           aria-hidden
         >
           {shownBadge === 99 && badge > 99 ? '99+' : shownBadge}
+        </span>
+      )}
+      {description && (
+        <span
+          id={descriptionId}
+          role="tooltip"
+          className={cn(
+            collapsed
+              ? 'sr-only'
+              : 'pointer-events-none invisible absolute bottom-[calc(100%+0.375rem)] left-0 z-50 w-full rounded-[var(--radius)] bg-text px-2.5 py-2 text-left t-caption leading-relaxed text-bg opacity-0 shadow-lg transition-opacity duration-150 group-hover:visible group-hover:opacity-100 group-focus-visible:visible group-focus-visible:opacity-100',
+          )}
+        >
+          {description}
         </span>
       )}
     </NavLink>
@@ -127,7 +146,7 @@ function SectionHeader({
       aria-expanded={expanded}
       aria-controls={id}
       className={cn(
-        'tap relative flex min-h-10 w-full items-center rounded-[var(--radius)] text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+        'tap relative flex min-h-11 w-full items-center rounded-[var(--radius)] t-control focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
         collapsed ? 'justify-center px-2.5' : 'gap-2.5 px-2.5',
         active && !expanded
           ? 'bg-accent/12 text-accent shadow-[inset_2px_0_0_var(--color-accent)]'
@@ -196,6 +215,16 @@ export function Sidebar() {
   const setSection = useUi((state) => state.setSidebarSection)
   const games = useQuery({ queryKey: ['games'], queryFn: () => trpc.games.list.query() })
   const overview = useQuery({ queryKey: ['dashboard'], queryFn: () => trpc.dashboard.overview.query() })
+  const promotionOperations = useQuery({
+    queryKey: ['creator-promotion-operations', currentGameId],
+    queryFn: () =>
+      trpc.creatorDiscovery.promotionOperations.query({
+        gameId: currentGameId!,
+        limit: 50,
+      }),
+    enabled: !!currentGameId,
+    refetchInterval: 1_000,
+  })
   const currentGame = games.data?.find((game) => game.id === currentGameId) ?? null
   const data = overview.data
   const toggleLabel = collapsed ? t('nav.expand') : t('nav.collapse')
@@ -210,6 +239,26 @@ export function Sidebar() {
   const criticalTotal = (data?.tasksOverdue.length ?? 0) + alarmDeadlines.length + (data?.syncs.length ?? 0)
   const focusBadge = criticalTotal || upcomingWeek.length + (data?.aiReview.length ?? 0)
   const focusTone: BadgeTone = criticalTotal > 0 ? 'alarm' : data?.aiReview.length ? 'accent' : 'warning'
+  const visiblePromotion =
+    promotionOperations.data?.find((operation) => ['queued', 'running'].includes(operation.status)) ??
+    promotionOperations.data?.find((operation) => ['partial', 'failed'].includes(operation.status)) ??
+    null
+  const promotionNeedsAttention = visiblePromotion ? ['partial', 'failed'].includes(visiblePromotion.status) : false
+  const promotionTarget = visiblePromotion
+    ? `/g/${currentGameId}/creators?${new URLSearchParams({
+        area: 'discovery',
+        run: visiblePromotion.scopeId,
+        promotion: visiblePromotion.id,
+      })}`
+    : ''
+  const promotionDescription = visiblePromotion
+    ? t(
+        promotionNeedsAttention ? 'nav.contactOperationNeedsAttentionHint' : 'nav.contactOperationHint',
+        promotionNeedsAttention
+          ? { n: visiblePromotion.failed }
+          : { processed: visiblePromotion.processed, selected: visiblePromotion.selected },
+      )
+    : undefined
 
   const byGame = currentGame
     ? {
@@ -256,7 +305,7 @@ export function Sidebar() {
         collapsed ? 'w-16' : 'w-56',
       )}
     >
-      <div className={cn('flex min-h-10 items-center pb-2', collapsed ? 'justify-center' : 'gap-2 px-2.5')}>
+      <div className={cn('flex min-h-11 items-center pb-2', collapsed ? 'justify-center' : 'gap-2 px-2.5')}>
         {!collapsed && (
           <>
             <Gamepad2 className="h-5 w-5 shrink-0 text-accent" aria-hidden />
@@ -268,171 +317,202 @@ export function Sidebar() {
           onClick={() => setCollapsed(!collapsed)}
           title={toggleLabel}
           aria-label={toggleLabel}
-          className="tap inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius)] text-muted hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+          className="tap inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius)] text-muted hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
         >
           {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </button>
       </div>
 
-      <button
-        type="button"
-        onClick={() => setSearchOpen(true)}
-        title={collapsed ? t('search.open') : undefined}
-        aria-label={t('search.open')}
-        className={cn(
-          'tap flex min-h-10 w-full items-center rounded-[var(--radius)] text-sm text-muted transition-[transform,background-color,color] hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
-          collapsed ? 'justify-center px-2.5' : 'gap-2.5 px-2.5',
-        )}
+      <nav
+        data-ui="sidebar-navigation"
+        aria-label={t('nav.primary')}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain pr-0.5"
       >
-        <Search className="h-4 w-4 shrink-0" aria-hidden />
-        {!collapsed && (
-          <>
-            <span className="min-w-0 flex-1 truncate text-left">{t('common.search')}</span>
-            <kbd className="rounded-[4px] bg-bg px-1.5 py-0.5 font-mono text-[10px] text-muted shadow-[0_0_0_1px_var(--border)]">
-              Ctrl F
-            </kbd>
-          </>
-        )}
-      </button>
+        <button
+          type="button"
+          onClick={() => setSearchOpen(true)}
+          title={collapsed ? t('search.open') : undefined}
+          aria-label={t('search.open')}
+          className={cn(
+            'tap flex min-h-11 w-full items-center rounded-[var(--radius)] t-control text-muted transition-[transform,background-color,color] hover:bg-surface-2 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+            collapsed ? 'justify-center px-2.5' : 'gap-2.5 px-2.5',
+          )}
+        >
+          <Search className="h-4 w-4 shrink-0" aria-hidden />
+          {!collapsed && (
+            <>
+              <span className="min-w-0 flex-1 truncate text-left">{t('common.search')}</span>
+              <kbd className="rounded-[4px] bg-bg px-1.5 py-0.5 font-mono t-caption text-muted shadow-[0_0_0_1px_var(--border)]">
+                Ctrl F
+              </kbd>
+            </>
+          )}
+        </button>
 
-      <div className="pt-1">
-        <SideLink
-          to="/"
-          end
-          icon={LayoutDashboard}
-          label={t('nav.focus')}
-          collapsed={collapsed}
-          badge={focusBadge}
-          badgeTone={focusTone}
-          section
-        />
-      </div>
-
-      <div className="pt-2">
-        <SectionHeader
-          id={librarySectionId}
-          label={t('nav.library')}
-          collapsed={collapsed}
-          expanded={libraryExpanded}
-          active={libraryActive}
-          onToggle={() => setSection('library', !libraryExpanded)}
-          icon={LibraryBig}
-          badge={libraryBadge}
-          badgeTone={libraryTone}
-        />
-        <SectionItems id={librarySectionId} expanded={libraryExpanded}>
+        <div className="pt-1">
           <SideLink
-            to="/festivals"
-            icon={PartyPopper}
-            label={t('fest.global')}
+            to="/"
+            end
+            icon={LayoutDashboard}
+            label={t('nav.focus')}
             collapsed={collapsed}
-            badge={festivalSoon.length}
-            badgeTone="warning"
-            nested
+            badge={focusBadge}
+            badgeTone={focusTone}
+            section
           />
-          <SideLink
-            to="/creators"
-            icon={Users}
-            label={t('creators.global')}
-            collapsed={collapsed}
-            badge={prospectTotal}
-            nested
-          />
-        </SectionItems>
-      </div>
+        </div>
 
-      {currentGame && byGame && (
         <div className="pt-2">
           <SectionHeader
-            id={projectSectionId}
-            label={currentGame.name}
+            id={librarySectionId}
+            label={t('nav.library')}
             collapsed={collapsed}
-            expanded={projectExpanded}
-            active={projectActive}
-            onToggle={() => setSection(projectSectionKey, !projectExpanded)}
-            color={currentGame.color}
-            badge={projectBadge}
-            badgeTone={projectTone}
+            expanded={libraryExpanded}
+            active={libraryActive}
+            onToggle={() => setSection('library', !libraryExpanded)}
+            icon={LibraryBig}
+            badge={libraryBadge}
+            badgeTone={libraryTone}
           />
-          <SectionItems id={projectSectionId} expanded={projectExpanded}>
-            <SideLink to={`/g/${currentGame.id}`} end icon={Home} label={t('nav.home')} collapsed={collapsed} nested />
+          <SectionItems id={librarySectionId} expanded={libraryExpanded}>
             <SideLink
-              to={`/g/${currentGame.id}/tasks`}
-              icon={ListTodo}
-              label={t('nav.tasks')}
-              collapsed={collapsed}
-              badge={byGame.overdue || byGame.upcoming}
-              badgeTone={byGame.overdue ? 'alarm' : 'warning'}
-              nested
-            />
-            <SideLink
-              to={`/g/${currentGame.id}/events`}
-              icon={ScrollText}
-              label={t('nav.events')}
-              collapsed={collapsed}
-              nested
-            />
-            <SideLink
-              to={`/g/${currentGame.id}/insights`}
-              icon={Lightbulb}
-              label={t('nav.insights')}
-              collapsed={collapsed}
-              nested
-            />
-            <SideLink
-              to={`/g/${currentGame.id}/comments`}
-              icon={MessageSquareText}
-              label={t('nav.comments')}
-              collapsed={collapsed}
-              badge={byGame.comments}
-              nested
-            />
-            <SideLink
-              to={`/g/${currentGame.id}/festivals`}
+              to="/festivals"
               icon={PartyPopper}
-              label={t('nav.festivals')}
+              label={t('fest.global')}
               collapsed={collapsed}
-              badge={byGame.festivals}
+              badge={festivalSoon.length}
               badgeTone="warning"
               nested
             />
             <SideLink
-              to={`/g/${currentGame.id}/creators`}
+              to="/creators"
               icon={Users}
-              label={t('nav.creators')}
+              label={t('creators.global')}
               collapsed={collapsed}
-              badge={byGame.creators}
-              nested
-            />
-            <SideLink
-              to={`/g/${currentGame.id}/sources`}
-              icon={Plug}
-              label={t('nav.sources')}
-              collapsed={collapsed}
-              badge={byGame.syncs}
-              badgeTone="alarm"
-              nested
-            />
-            <SideLink
-              to={`/g/${currentGame.id}/analytics`}
-              icon={LineChart}
-              label={t('nav.analytics')}
-              collapsed={collapsed}
-              nested
-            />
-            <SideLink
-              to={`/g/${currentGame.id}/ai`}
-              icon={Cat}
-              label={t('nav.aiDen')}
-              collapsed={collapsed}
-              badge={byGame.reviews}
+              badge={prospectTotal}
               nested
             />
           </SectionItems>
         </div>
+
+        {currentGame && byGame && (
+          <div className="pt-2">
+            <SectionHeader
+              id={projectSectionId}
+              label={currentGame.name}
+              collapsed={collapsed}
+              expanded={projectExpanded}
+              active={projectActive}
+              onToggle={() => setSection(projectSectionKey, !projectExpanded)}
+              color={currentGame.color}
+              badge={projectBadge}
+              badgeTone={projectTone}
+            />
+            <SectionItems id={projectSectionId} expanded={projectExpanded}>
+              <SideLink
+                to={`/g/${currentGame.id}`}
+                end
+                icon={Home}
+                label={t('nav.home')}
+                collapsed={collapsed}
+                nested
+              />
+              <SideLink
+                to={`/g/${currentGame.id}/tasks`}
+                icon={ListTodo}
+                label={t('nav.tasks')}
+                collapsed={collapsed}
+                badge={byGame.overdue || byGame.upcoming}
+                badgeTone={byGame.overdue ? 'alarm' : 'warning'}
+                nested
+              />
+              <SideLink
+                to={`/g/${currentGame.id}/events`}
+                icon={ScrollText}
+                label={t('nav.events')}
+                collapsed={collapsed}
+                nested
+              />
+              <SideLink
+                to={`/g/${currentGame.id}/insights`}
+                icon={Lightbulb}
+                label={t('nav.insights')}
+                collapsed={collapsed}
+                nested
+              />
+              <SideLink
+                to={`/g/${currentGame.id}/comments`}
+                icon={MessageSquareText}
+                label={t('nav.comments')}
+                collapsed={collapsed}
+                badge={byGame.comments}
+                nested
+              />
+              <SideLink
+                to={`/g/${currentGame.id}/festivals`}
+                icon={PartyPopper}
+                label={t('nav.festivals')}
+                collapsed={collapsed}
+                badge={byGame.festivals}
+                badgeTone="warning"
+                nested
+              />
+              <SideLink
+                to={`/g/${currentGame.id}/creators`}
+                icon={Users}
+                label={t('nav.creators')}
+                collapsed={collapsed}
+                badge={byGame.creators}
+                nested
+              />
+              <SideLink
+                to={`/g/${currentGame.id}/sources`}
+                icon={Plug}
+                label={t('nav.sources')}
+                collapsed={collapsed}
+                badge={byGame.syncs}
+                badgeTone="alarm"
+                nested
+              />
+              <SideLink
+                to={`/g/${currentGame.id}/analytics`}
+                icon={LineChart}
+                label={t('nav.analytics')}
+                collapsed={collapsed}
+                nested
+              />
+              <SideLink
+                to={`/g/${currentGame.id}/ai`}
+                icon={Cat}
+                label={t('nav.aiDen')}
+                collapsed={collapsed}
+                badge={byGame.reviews}
+                nested
+              />
+            </SectionItems>
+          </div>
+        )}
+      </nav>
+
+      {currentGame && visiblePromotion && (
+        <div className="mt-2 shrink-0 border-t border-border pt-2">
+          <SideLink
+            to={promotionTarget}
+            icon={promotionNeedsAttention ? CircleAlert : Clock3}
+            label={t(promotionNeedsAttention ? 'nav.contactOperationNeedsAttention' : 'nav.contactOperation')}
+            description={promotionDescription}
+            collapsed={collapsed}
+            badge={
+              promotionNeedsAttention
+                ? visiblePromotion.failed
+                : Math.max(0, visiblePromotion.selected - visiblePromotion.processed)
+            }
+            badgeTone={promotionNeedsAttention ? 'alarm' : 'accent'}
+          />
+        </div>
       )}
 
-      <div className="mt-auto">
+      <div className="mt-2 shrink-0 border-t border-border pt-2">
         <SideLink to="/settings" icon={Settings} label={t('nav.settings')} collapsed={collapsed} />
       </div>
     </aside>

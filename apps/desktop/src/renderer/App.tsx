@@ -4,6 +4,7 @@ import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { queryClient } from './lib/queryClient'
 import { ThemeManager } from './components/ThemeManager'
 import { AppShell } from './components/shell/AppShell'
+import { PageContainerOutlet } from './components/shell/PageContainer'
 
 const Dashboard = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.Dashboard })))
 const GameHome = lazy(() => import('./pages/GameHome').then((module) => ({ default: module.GameHome })))
@@ -26,21 +27,25 @@ export function App() {
       <HashRouter>
         <Routes>
           <Route element={<AppShell />}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/festivals" element={<Festivals />} />
-            <Route path="/creators" element={<Creators />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/g/:gameId" element={<GameHome />} />
-            <Route path="/g/:gameId/tasks" element={<Tasks />} />
-            <Route path="/g/:gameId/calendar" element={<Calendar />} />
-            <Route path="/g/:gameId/events" element={<Events />} />
-            <Route path="/g/:gameId/insights" element={<Insights />} />
-            <Route path="/g/:gameId/comments" element={<Comments />} />
-            <Route path="/g/:gameId/festivals" element={<Festivals />} />
-            <Route path="/g/:gameId/creators" element={<Creators />} />
-            <Route path="/g/:gameId/sources" element={<Sources />} />
-            <Route path="/g/:gameId/analytics" element={<Analytics />} />
-            <Route path="/g/:gameId/ai" element={<AiDen />} />
+            <Route element={<PageContainerOutlet width="standard" />}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/g/:gameId" element={<GameHome />} />
+              <Route path="/g/:gameId/events" element={<Events />} />
+              <Route path="/g/:gameId/comments" element={<Comments />} />
+              <Route path="/g/:gameId/sources" element={<Sources />} />
+              <Route path="/g/:gameId/analytics" element={<Analytics />} />
+              <Route path="/g/:gameId/ai" element={<AiDen />} />
+            </Route>
+            <Route element={<PageContainerOutlet width="wide" />}>
+              <Route path="/festivals" element={<Festivals />} />
+              <Route path="/creators" element={<Creators />} />
+              <Route path="/g/:gameId/tasks" element={<Tasks />} />
+              <Route path="/g/:gameId/calendar" element={<Calendar />} />
+              <Route path="/g/:gameId/insights" element={<Insights />} />
+              <Route path="/g/:gameId/festivals" element={<Festivals />} />
+              <Route path="/g/:gameId/creators" element={<Creators />} />
+            </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

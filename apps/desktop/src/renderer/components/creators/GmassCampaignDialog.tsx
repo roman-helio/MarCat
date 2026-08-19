@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, Send, X } from 'lucide-react'
@@ -110,7 +111,7 @@ export function GmassCampaignDialog({
     !!fromEmail.trim() &&
     (sendMode !== 'schedule' || !!sendAt)
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4"
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
@@ -228,7 +229,7 @@ export function GmassCampaignDialog({
                 }}
               />
             </label>
-            <p className="font-mono text-[11px] leading-relaxed text-muted">{t('gmass.variables')}</p>
+            <p className="font-mono t-caption leading-relaxed text-muted">{t('gmass.variables')}</p>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1 t-hint">
@@ -276,7 +277,7 @@ export function GmassCampaignDialog({
             </div>
           </div>
 
-          <aside className="space-y-4">
+          <aside className="min-w-0 space-y-4">
             <section className="space-y-2">
               <h3 className="t-section">{t('gmass.recipients')}</h3>
               {!preview.data ? (
@@ -286,7 +287,10 @@ export function GmassCampaignDialog({
               ) : (
                 <div className="space-y-2">
                   {preview.data.recipients.map((recipient) => (
-                    <details key={recipient.creatorId} className="rounded-[10px] bg-surface-2 px-3 py-2 text-sm">
+                    <details
+                      key={recipient.creatorId}
+                      className="min-w-0 rounded-[10px] bg-surface-2 px-3 py-2 text-sm"
+                    >
                       <summary className="flex min-h-10 cursor-pointer list-none items-center gap-2">
                         <input
                           type="checkbox"
@@ -297,9 +301,11 @@ export function GmassCampaignDialog({
                         <span className="min-w-0 flex-1 truncate font-medium">{recipient.creatorName}</span>
                         <span className="max-w-36 truncate text-xs text-muted">{recipient.email}</span>
                       </summary>
-                      <div className="space-y-2 border-t border-border pt-2 text-xs">
-                        <div className="font-medium">{recipient.subject}</div>
-                        <pre className="whitespace-pre-wrap font-sans text-muted">{recipient.body}</pre>
+                      <div className="min-w-0 space-y-2 border-t border-border pt-2 text-xs">
+                        <div className="break-words font-medium [overflow-wrap:anywhere]">{recipient.subject}</div>
+                        <pre className="max-w-full break-words whitespace-pre-wrap font-sans text-muted [overflow-wrap:anywhere]">
+                          {recipient.body}
+                        </pre>
                       </div>
                     </details>
                   ))}
@@ -312,7 +318,7 @@ export function GmassCampaignDialog({
                   </summary>
                   <ul className="space-y-1 pl-4 text-xs">
                     {preview.data!.excluded.map((item) => (
-                      <li key={item.creatorId}>
+                      <li key={item.creatorId} className="break-words [overflow-wrap:anywhere]">
                         {item.creatorName} — {t(`gmass.exclude.${item.reason}` as 'gmass.exclude.do_not_contact')}
                       </li>
                     ))}
@@ -358,6 +364,7 @@ export function GmassCampaignDialog({
           </aside>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

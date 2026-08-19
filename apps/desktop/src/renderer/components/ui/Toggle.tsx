@@ -1,9 +1,9 @@
-import type { ReactNode } from 'react'
+import { useRef, type KeyboardEvent, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 interface SegItem<T extends string> {
   value: T
-  label?: string
+  label?: ReactNode
   icon?: ReactNode
   title?: string
 }
@@ -14,30 +14,57 @@ export function Segmented<T extends string>({
   onChange,
   items,
   ariaLabel,
+  className,
 }: {
   value: T
   onChange: (v: T) => void
   items: SegItem<T>[]
   ariaLabel?: string
+  className?: string
 }) {
+  const buttons = useRef<Array<HTMLButtonElement | null>>([])
+  const moveFocus = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const nextIndex =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? items.length - 1
+          : (index + (event.key === 'ArrowRight' ? 1 : -1) + items.length) % items.length
+    onChange(items[nextIndex].value)
+    buttons.current[nextIndex]?.focus()
+  }
+
   return (
     <div
+      data-ui="segmented"
       role="tablist"
       aria-label={ariaLabel}
-      className="flex h-10 items-center overflow-hidden rounded-[var(--radius)] border border-border text-sm"
+      className={cn(
+        'inline-grid h-11 w-fit auto-cols-fr grid-flow-col items-stretch rounded-[12px] bg-surface-2 p-0.5 shadow-[inset_0_0_0_1px_var(--border)]',
+        className,
+      )}
     >
-      {items.map((it, i) => (
+      {items.map((it, index) => (
         <button
           key={it.value}
+          ref={(node) => {
+            buttons.current[index] = node
+          }}
+          type="button"
           role="tab"
           aria-selected={value === it.value}
+          tabIndex={value === it.value ? 0 : -1}
           title={it.title}
           aria-label={it.title}
           onClick={() => onChange(it.value)}
+          onKeyDown={(event) => moveFocus(event, index)}
           className={cn(
-            'inline-flex h-full items-center gap-1.5 px-2.5 transition-colors',
-            i > 0 && 'border-l border-border',
-            value === it.value ? 'bg-accent/10 text-accent' : 'text-muted hover:text-text',
+            'tap inline-flex min-w-10 items-center justify-center gap-1.5 whitespace-nowrap rounded-[10px] px-3 t-control transition-[transform,background-color,color,box-shadow] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60',
+            value === it.value
+              ? 'bg-surface text-accent shadow-hard'
+              : 'text-muted hover:bg-surface/55 hover:text-text',
           )}
         >
           {it.icon}
@@ -67,7 +94,7 @@ export function IconToggle({
       aria-label={title}
       aria-pressed={active}
       className={cn(
-        'inline-flex h-10 w-10 items-center justify-center rounded-[var(--radius)] border transition-colors active:scale-[0.96]',
+        'tap inline-flex h-11 w-11 items-center justify-center rounded-[var(--radius)] border transition-[transform,background-color,border-color,color] duration-150 ease-out',
         active ? 'border-accent/50 bg-accent/10 text-accent' : 'border-border text-muted hover:text-text',
       )}
     >

@@ -78,7 +78,7 @@ function WorkspaceIssue({
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
             <span className="text-xs font-medium text-text">{t(`workspace.issue.${issue.kind}`)}</span>
             {issue.relativePath && (
-              <span className="truncate font-mono text-[11px] text-muted" title={issue.relativePath}>
+              <span className="truncate font-mono t-caption text-muted" title={issue.relativePath}>
                 {issue.relativePath}
               </span>
             )}
@@ -223,7 +223,7 @@ function GameWorkspaceCard({ game }: { game: Game }) {
           <h3 className="min-w-0 flex-1 truncate text-sm font-medium text-text">{game.name}</h3>
           <span
             className={cn(
-              'inline-flex min-h-7 items-center rounded-full px-2.5 text-[11px] font-medium',
+              'inline-flex min-h-7 items-center rounded-full px-2.5 t-caption font-medium',
               enabled ? 'bg-success/10 text-success' : 'bg-bg text-muted',
             )}
             role="status"
@@ -242,7 +242,7 @@ function GameWorkspaceCard({ game }: { game: Game }) {
           <>
             <div className="grid gap-1.5 sm:grid-cols-[1fr_auto] sm:items-end">
               <div className="min-w-0">
-                <span className="text-[11px] text-muted">{t('workspace.projectFolder')}</span>
+                <span className="t-caption text-muted">{t('workspace.projectFolder')}</span>
                 <div
                   className="mt-1 min-h-10 truncate rounded-[var(--radius)] bg-bg px-3 py-2.5 font-mono text-xs text-text shadow-[inset_0_0_0_1px_var(--border)]"
                   title={rootPath ?? t('workspace.notChosen')}
@@ -256,7 +256,7 @@ function GameWorkspaceCard({ game }: { game: Game }) {
               </Button>
             </div>
             {configured && (
-              <p className="text-[11px] text-muted">
+              <p className="t-caption text-muted">
                 {t('workspace.managedFolder')}: <span className="font-mono">{configured.workspaceFolder}</span>
               </p>
             )}
@@ -265,7 +265,7 @@ function GameWorkspaceCard({ game }: { game: Game }) {
               <dl className="grid grid-cols-3 gap-1.5 sm:grid-cols-6" aria-label={t('workspace.syncCounts')}>
                 {statusKeys.map((key) => (
                   <div key={key} className="rounded-[var(--radius)] bg-bg px-2 py-1.5 text-center">
-                    <dt className="truncate text-[10px] text-muted">{t(`workspace.count.${key}`)}</dt>
+                    <dt className="truncate t-caption text-muted">{t(`workspace.count.${key}`)}</dt>
                     <dd
                       className={cn(
                         'nums mt-0.5 text-sm font-medium',
@@ -312,7 +312,7 @@ function GameWorkspaceCard({ game }: { game: Game }) {
             </div>
 
             {configured && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted" aria-live="polite">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 t-caption text-muted" aria-live="polite">
                 {busy ? (
                   <span>{t('workspace.working')}</span>
                 ) : (status.data?.openIssues ?? 0) > 0 ? (

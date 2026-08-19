@@ -180,7 +180,7 @@ function ActivityFields({
       </div>
 
       {value.showOnWishlist && (
-        <div className="enter grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <select
             value={value.type}
             onChange={(e) => set('type', e.target.value as EventType)}
@@ -303,7 +303,7 @@ function ActivityRow({
 
   if (editing) {
     return (
-      <div className="enter space-y-2 rounded-[var(--radius)] bg-surface p-3 shadow-[0_0_0_1px_var(--border)]">
+      <div className="space-y-2 rounded-[var(--radius)] bg-surface p-3 shadow-[0_0_0_1px_var(--border)]">
         <ActivityFields value={draft} onChange={setDraft} statusOptions={statusOptions} compact />
         <div className="flex justify-end gap-2">
           <Button
@@ -419,7 +419,7 @@ function ActivityRow({
           type="button"
           onClick={() => long && setExpanded((value) => !value)}
           className={cn(
-            'block w-full whitespace-pre-wrap text-left text-sm leading-relaxed text-text',
+            'block min-w-0 max-w-full break-words whitespace-pre-wrap text-left text-sm leading-relaxed text-text [overflow-wrap:anywhere]',
             long && 'cursor-pointer',
             !expanded && long && 'line-clamp-4',
           )}
@@ -429,10 +429,12 @@ function ActivityRow({
         {row.showOnWishlist && (row.platform || row.placement || row.url) && (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted">
             {row.platform && (
-              <span>{PLATFORM_META[row.platform as keyof typeof PLATFORM_META]?.label || row.platform}</span>
+              <span className="break-words [overflow-wrap:anywhere]">
+                {PLATFORM_META[row.platform as keyof typeof PLATFORM_META]?.label || row.platform}
+              </span>
             )}
-            {row.placement && <span>{row.placement}</span>}
-            {row.url && <span className="max-w-full truncate">{row.url}</span>}
+            {row.placement && <span className="break-words [overflow-wrap:anywhere]">{row.placement}</span>}
+            {row.url && <span className="min-w-0 max-w-full truncate">{row.url}</span>}
           </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useId, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Cat, Gamepad2, LineChart, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -16,6 +16,7 @@ export function Onboarding() {
   const lang = useSettings((s) => s.lang)
   const setLang = useSettings((s) => s.setLang)
   const ref = useRef<HTMLDivElement>(null)
+  const titleId = useId()
   const done = (path?: string) => {
     setOnboarded(true)
     if (path) navigate(path)
@@ -35,12 +36,15 @@ export function Onboarding() {
         ref={ref}
         role="dialog"
         aria-modal="true"
+        aria-labelledby={titleId}
         className="enter w-[min(560px,94vw)] space-y-4 rounded-[var(--radius)] border border-border bg-surface p-5 shadow-hard"
       >
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="font-mono text-lg text-accent">=^•‿•^=</div>
-            <h2 className="mt-1 t-title">{t('ob.title')}</h2>
+            <h2 id={titleId} className="mt-1 t-title">
+              {t('ob.title')}
+            </h2>
             <p className="text-sm text-muted">{t('ob.intro')}</p>
           </div>
           <div className="flex items-center gap-1">
