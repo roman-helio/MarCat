@@ -17,13 +17,19 @@ import {
   aiRuns,
   backfillTaskKeys,
   checkpoint,
+  cleanupBackupStaging,
   configureConnection,
   createDb,
   createVerifiedBackup,
   fileUrlFromPath,
+  findVerifiedSnapshot,
+  formatSalvageReport,
+  listDatabaseSnapshots,
   runMigrations,
+  salvageDatabase,
   seedPublicFestivalCatalogue,
   verifyDatabaseFile,
+  type DatabaseSnapshot,
   type DB,
 } from '@marcat/db'
 import { eq } from 'drizzle-orm'
@@ -139,40 +145,6 @@ function isCorruptDatabaseError(error: unknown): boolean {
   return /SQLITE_CORRUPT|malformed database schema|database disk image is malformed|file is not a database/i.test(text)
 }
 
-interface QuarantineResult {
-  dest?: string
-  existed: boolean
-  removedOriginal: boolean
-}
-
-function quarantineFile(src: string, dest: string): QuarantineResult {
-  if (!fs.existsSync(src)) return { existed: false, removedOriginal: true }
-  fs.mkdirSync(join(app.getPath('userData'), 'corrupt'), { recursive: true })
-  try {
-    fs.renameSync(src, dest)
-    return { dest, existed: true, removedOriginal: true }
-  } catch (renameError) {
-    fs.copyFileSync(src, dest)
-    try {
-      fs.rmSync(src)
-      return { dest, existed: true, removedOriginal: true }
-    } catch (removeError) {
-      appendStartupLog(`Copied corrupt database file but could not remove locked original: ${src}`, removeError)
-      appendStartupLog('Original rename error.', renameError)
-      return { dest, existed: true, removedOriginal: false }
-    }
-  }
-}
-
-function quarantineDatabaseFiles(dbPath: string): QuarantineResult {
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const base = join(app.getPath('userData'), 'corrupt', `marcat-${stamp}.db`)
-  const main = quarantineFile(dbPath, base)
-  quarantineFile(`${dbPath}-wal`, `${base}-wal`)
-  quarantineFile(`${dbPath}-shm`, `${base}-shm`)
-  return main
-}
-
 function defaultDatabasePath(): string {
   return join(app.getPath('userData'), 'marcat.db')
 }
@@ -207,36 +179,69 @@ function rememberActiveDbPath(dbPath: string): void {
   }
 }
 
-function recoveryDatabasePath(currentDbPath: string): string {
-  const userData = app.getPath('userData')
-  const stable = join(userData, 'marcat-recovered.db')
-  if (resolve(currentDbPath) !== resolve(stable)) return stable
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  return join(userData, `marcat-recovered-${stamp}.db`)
+function backupDirectory(): string {
+  return join(app.getPath('userData'), 'backups')
+}
+
+const LAUNCH_SNAPSHOT_PREFIX = 'marcat-auto-'
+const SNAPSHOTS_KEPT_BY_COUNT = 5
+const SNAPSHOTS_KEPT_DAYS = 21
+
+/** When the app last switched which file is the live database, if it ever did. */
+function activeDatabaseSwitchedAt(): number | undefined {
+  try {
+    const marker = activeDbMarkerPath()
+    return fs.existsSync(marker) ? fs.statSync(marker).mtimeMs : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Rotation exists to bound disk use, and it must never be the thing that closes
+ * the last door out of an incident. Three rules keep it honest:
+ *
+ *  - keep the N most recent AND everything from the last few weeks, so a problem
+ *    noticed late still has a snapshot from before it started;
+ *  - never drop a snapshot older than the moment the active database last
+ *    changed - after a switch, the old snapshots are the evidence, and the new
+ *    ones are snapshots of whatever replaced it;
+ *  - do not rotate at all on a launch that is recovering from corruption.
+ */
+function pruneLaunchSnapshots(dir: string): void {
+  if (startupRecoveryMessage) return
+  const switchedAt = activeDatabaseSwitchedAt()
+  const cutoff = Date.now() - SNAPSHOTS_KEPT_DAYS * 24 * 60 * 60 * 1000
+  const snapshots = listDatabaseSnapshots(dir, (name) => name.startsWith(LAUNCH_SNAPSHOT_PREFIX))
+  for (const [index, snapshot] of snapshots.entries()) {
+    const takenAt = snapshot.takenAt.getTime()
+    if (index < SNAPSHOTS_KEPT_BY_COUNT) continue
+    if (takenAt >= cutoff) continue
+    if (switchedAt !== undefined && takenAt <= switchedAt) continue
+    try {
+      fs.rmSync(snapshot.path)
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 /**
  * Rotating snapshot taken at every launch (after the WAL is flushed) so a corrupted
- * session or accidental wipe is always recoverable. Keeps the 5 most recent.
+ * session or accidental wipe is always recoverable.
  */
 async function backupOnLaunch(database: DB, dbPath: string): Promise<void> {
   try {
     if (!fs.existsSync(dbPath) || fs.statSync(dbPath).size < 4096) return
-    const dir = join(app.getPath('userData'), 'backups')
+    const dir = backupDirectory()
     fs.mkdirSync(dir, { recursive: true })
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-    await createVerifiedBackup(database, join(dir, `marcat-auto-${stamp}.db`))
-    const autos = fs
-      .readdirSync(dir)
-      .filter((f) => f.startsWith('marcat-auto-') && f.endsWith('.db'))
-      .sort()
-    for (const f of autos.slice(0, Math.max(0, autos.length - 5))) {
-      try {
-        fs.rmSync(join(dir, f))
-      } catch {
-        /* ignore */
-      }
+    const reclaimed = await cleanupBackupStaging(dir, appendStartupLog)
+    if (reclaimed > 0) {
+      appendStartupLog(`Reclaimed ${Math.round(reclaimed / 1_048_576)} MB of leftover snapshot files.`)
     }
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    await createVerifiedBackup(database, join(dir, `${LAUNCH_SNAPSHOT_PREFIX}${stamp}.db`), appendStartupLog)
+    pruneLaunchSnapshots(dir)
   } catch {
     /* backups are best-effort; never block startup */
   }
@@ -391,6 +396,143 @@ async function openPreparedDb(dbPath: string): Promise<ReturnType<typeof createD
   }
 }
 
+interface DatabaseRecovery {
+  dbPath: string
+  summary: string
+}
+
+/** The user declined to replace a damaged database. Quitting is the requested outcome, not a failure. */
+class StartupCancelled extends Error {}
+
+const SALVAGE_TIME_BUDGET_MS = 5 * 60_000
+
+/** A fresh, never-used path for the database that takes over from a damaged one. */
+function replacementDatabasePath(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  return join(app.getPath('userData'), `marcat-recovered-${stamp}.db`)
+}
+
+function describeAge(takenAt: Date): string {
+  const hours = Math.round((Date.now() - takenAt.getTime()) / 3_600_000)
+  if (hours < 1) return 'less than an hour ago'
+  if (hours < 48) return `${hours} hours ago`
+  return `${Math.round(hours / 24)} days ago`
+}
+
+type RecoveryChoice = 'snapshot' | 'salvage' | 'empty' | 'quit'
+
+/**
+ * Replacing the user's database is their decision, not ours. Every branch leaves
+ * the damaged file exactly where it is, so closing this dialog is a safe answer:
+ * nothing on disk changes and the data is still there next launch.
+ */
+function askRecoveryChoice(corruptPath: string, snapshot: DatabaseSnapshot | undefined): RecoveryChoice {
+  const actions: RecoveryChoice[] = []
+  const buttons: string[] = []
+  if (snapshot) {
+    actions.push('snapshot')
+    buttons.push(`Restore the backup from ${snapshot.takenAt.toLocaleString()}`)
+  }
+  actions.push('salvage')
+  buttons.push('Recover what can still be read from the damaged file')
+  actions.push('empty')
+  buttons.push('Start with an empty database')
+  actions.push('quit')
+  buttons.push('Quit and change nothing')
+
+  const index = dialog.showMessageBoxSync({
+    type: 'warning',
+    title: 'MarCat database is damaged',
+    message: 'MarCat could not open its database.',
+    detail: [
+      `Damaged file, left untouched:\n${corruptPath}`,
+      snapshot
+        ? `Newest backup that passes a full integrity check, taken ${describeAge(snapshot.takenAt)}:\n${snapshot.path}`
+        : 'No backup in the backups folder passes an integrity check.',
+      'Nothing is deleted whichever option you choose.',
+    ].join('\n\n'),
+    buttons,
+    defaultId: 0,
+    cancelId: actions.length - 1,
+    noLink: true,
+  })
+  return actions[index] ?? 'quit'
+}
+
+/**
+ * Corruption in SQLite is damage to some pages, not to the file as a whole, so
+ * treating it as a total loss throws away data that is still there. The ladder
+ * is: a verified backup first, then whatever can be read out of the damaged file
+ * itself, and an empty database only if the user explicitly asks for one.
+ *
+ * The damaged file is never moved, copied over, or deleted in any branch.
+ */
+async function recoverFromCorruptDatabase(corruptPath: string, error: unknown): Promise<DatabaseRecovery> {
+  appendStartupLog(`Database is corrupt. It will be left in place at ${corruptPath}.`, error)
+  const snapshot = await findVerifiedSnapshot(backupDirectory(), { onWarning: appendStartupLog })
+  if (!snapshot) appendStartupLog('No verified snapshot is available for recovery.')
+
+  const preserved = `The damaged database was left untouched at:\n${corruptPath}`
+  for (;;) {
+    const choice = askRecoveryChoice(corruptPath, snapshot)
+    if (choice === 'quit') {
+      appendStartupLog('Startup cancelled by the user; nothing was changed.')
+      throw new StartupCancelled('The damaged database was left in place.')
+    }
+
+    const target = replacementDatabasePath()
+    if (choice === 'snapshot' && snapshot) {
+      try {
+        fs.copyFileSync(snapshot.path, target)
+        await verifyDatabaseFile(target)
+        appendStartupLog(`Restored ${snapshot.path} into ${target}.`)
+        return {
+          dbPath: target,
+          summary: [
+            preserved,
+            `MarCat restored the backup taken ${describeAge(snapshot.takenAt)} into:\n${target}`,
+            'Anything changed after that backup is not in it. The damaged file can still be salvaged later.',
+          ].join('\n\n'),
+        }
+      } catch (restoreError) {
+        fs.rmSync(target, { force: true })
+        appendStartupLog('Restoring the snapshot failed; returning to the recovery options.', restoreError)
+        continue
+      }
+    }
+
+    if (choice === 'salvage') {
+      try {
+        const report = await salvageDatabase(corruptPath, target, { timeBudgetMs: SALVAGE_TIME_BUDGET_MS })
+        appendStartupLog(`Salvage finished.\n${formatSalvageReport(report)}`)
+        await verifyDatabaseFile(target)
+        return {
+          dbPath: target,
+          summary: [
+            preserved,
+            `MarCat recovered what could be read into:\n${target}`,
+            formatSalvageReport(report),
+          ].join('\n\n'),
+        }
+      } catch (salvageError) {
+        fs.rmSync(target, { force: true })
+        appendStartupLog('Salvage failed; returning to the recovery options.', salvageError)
+        continue
+      }
+    }
+
+    appendStartupLog(`Starting with an empty database at ${target}.`)
+    return {
+      dbPath: target,
+      summary: [
+        preserved,
+        `MarCat is starting with an empty database at:\n${target}`,
+        'The damaged file is still on disk and can be salvaged later.',
+      ].join('\n\n'),
+    }
+  }
+}
+
 async function initDb(): Promise<DB> {
   let dbPath = readActiveDbPath()
   activeDbPath = dbPath
@@ -425,16 +567,11 @@ async function initDb(): Promise<DB> {
     opened = await openPreparedDb(dbPath)
   } catch (error) {
     if (!isCorruptDatabaseError(error)) throw error
-
-    appendStartupLog('Database is corrupt; moving it aside and creating a fresh database.', error)
-    const quarantine = quarantineDatabaseFiles(dbPath)
-    const nextDbPath = quarantine.removedOriginal ? dbPath : recoveryDatabasePath(dbPath)
-    dbPath = nextDbPath
-    activeDbPath = nextDbPath
-    rememberActiveDbPath(nextDbPath)
-    startupRecoveryMessage = quarantine.dest
-      ? `The previous database was corrupt and has been copied to:\n${quarantine.dest}\n\nMarCat is now using:\n${nextDbPath}`
-      : `The previous database was corrupt. MarCat is now using:\n${nextDbPath}`
+    const recovered = await recoverFromCorruptDatabase(dbPath, error)
+    dbPath = recovered.dbPath
+    activeDbPath = recovered.dbPath
+    rememberActiveDbPath(recovered.dbPath)
+    startupRecoveryMessage = recovered.summary
     opened = await openPreparedDb(dbPath)
   }
 
@@ -772,6 +909,10 @@ if (!app.requestSingleInstanceLock()) {
       })
     })
     .catch((error) => {
+      if (error instanceof StartupCancelled) {
+        app.exit(0)
+        return
+      }
       appendStartupLog('MarCat failed to start.', error)
       dialog.showErrorBox('MarCat failed to start', formatError(error))
       app.quit()
