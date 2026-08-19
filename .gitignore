@@ -64,3 +64,13 @@ Desktop.ini
 .vscode/
 *.swp
 *.swo
+
+# Local code-search index
+.lcs/
+
+# One-off analysis dumps and throwaway scripts
+audit_shard_*.json
+history_audit_shard_*.json
+history_candidates_*.json
+history_enrichment_report.json
+scripts/tmp-*
