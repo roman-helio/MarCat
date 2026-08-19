@@ -18,9 +18,12 @@ import {
   backfillTaskKeys,
   checkpoint,
   cleanupBackupStaging,
+  compareDatabases,
   configureConnection,
   createDb,
   createVerifiedBackup,
+  describeDatabase,
+  describeShortfall,
   fileUrlFromPath,
   findVerifiedSnapshot,
   formatSalvageReport,
@@ -29,8 +32,10 @@ import {
   runMigrations,
   salvageDatabase,
   seedPublicFestivalCatalogue,
+  summarizeDatabase,
   verifyDatabaseFile,
   type DatabaseSnapshot,
+  type DatabaseSummary,
   type DB,
 } from '@marcat/db'
 import { eq } from 'drizzle-orm'
@@ -615,26 +620,103 @@ async function applyStagedRestore(dbPath: string, restore: string): Promise<void
   }
 }
 
+/** Every file that could plausibly be the live database, richest hint first. */
+function databaseCandidates(preferred: string): string[] {
+  const userData = app.getPath('userData')
+  const seen = new Set<string>()
+  const found: string[] = []
+  const add = (path: string): void => {
+    const resolved = resolve(path)
+    if (seen.has(resolved) || !fs.existsSync(resolved)) return
+    seen.add(resolved)
+    found.push(resolved)
+  }
+  add(preferred)
+  try {
+    for (const name of fs.readdirSync(userData)) {
+      if (name.startsWith('.') || !name.endsWith('.db')) continue
+      add(join(userData, name))
+    }
+  } catch {
+    /* directory listing is best-effort */
+  }
+  const newestSnapshot = listDatabaseSnapshots(backupDirectory())[0]
+  if (newestSnapshot) add(newestSnapshot.path)
+  // Bounded: each candidate is copied before being read.
+  return found.slice(0, 8)
+}
+
+/**
+ * When the marker cannot be honoured, the app must not hand the question "is
+ * this the right database?" to a person. A stale file can differ from the live
+ * one by a handful of rows out of thousands, which nobody can check by looking.
+ * So the candidates are read and compared here, and the user is shown the facts
+ * that separate them with the answer already worked out.
+ */
+async function resolveDatabaseAfterFallback(fallback: string, reason: string): Promise<string> {
+  const candidates = databaseCandidates(fallback)
+  const summaries: DatabaseSummary[] = []
+  for (const candidate of candidates) summaries.push(await summarizeDatabase(candidate))
+  const readable = summaries.filter((summary) => summary.readable).sort(compareDatabases)
+  const best = readable[0]
+  const fallbackSummary = summaries.find((summary) => resolve(summary.path) === resolve(fallback))
+
+  for (const summary of summaries) appendStartupLog(describeDatabase(summary))
+
+  if (!best || resolve(best.path) === resolve(fallback)) {
+    startupRecoveryMessage = [
+      `MarCat could not use the database it was last working with, because ${reason}.`,
+      `It has opened the fullest database it could find:\n${fallback}`,
+      fallbackSummary ? describeDatabase(fallbackSummary) : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n')
+    return fallback
+  }
+
+  const shortfall = fallbackSummary ? describeShortfall(fallbackSummary, best) : undefined
+  const choice = dialog.showMessageBoxSync({
+    type: 'warning',
+    title: 'MarCat cannot find the database it was using',
+    message: 'MarCat could not open the database it was last working with.',
+    detail: [
+      `Reason: ${reason}.`,
+      describeDatabase(best, 'Recommended — this one holds the most recent work:'),
+      describeDatabase(
+        fallbackSummary ?? { ...best, path: fallback, readable: false },
+        shortfall ? `The default database — ${shortfall}:` : 'The default database:',
+      ),
+      'Nothing is changed or deleted whichever you pick.',
+    ].join('\n\n'),
+    buttons: ['Open the recommended database', 'Open the default database', 'Quit and change nothing'],
+    defaultId: 0,
+    cancelId: 2,
+    noLink: true,
+  })
+
+  if (choice === 2) {
+    appendStartupLog('Startup cancelled by the user at the database choice; nothing was changed.')
+    throw new StartupCancelled('No database was chosen.')
+  }
+  const chosen = choice === 0 ? best.path : fallback
+  appendStartupLog(`User chose ${chosen} after the marker could not be honoured.`)
+  rememberActiveDbPath(chosen)
+  startupRecoveryMessage = [
+    `MarCat could not use the database it was last working with, because ${reason}.`,
+    `It is now using:\n${chosen}`,
+  ].join('\n\n')
+  return chosen
+}
+
 async function initDb(): Promise<DB> {
   let dbPath = readActiveDbPath()
+  if (activeDbFallbackReason) dbPath = await resolveDatabaseAfterFallback(dbPath, activeDbFallbackReason)
   activeDbPath = dbPath
   // One line per launch that answers "which database, and was anything staged?".
   // Without it, a restore that is never seen leaves no trace to investigate.
   const restore = join(app.getPath('userData'), 'marcat.restore')
   const staged = fs.existsSync(restore)
-  appendStartupLog(
-    `Database: ${dbPath}${activeDbFallbackReason ? ` (fell back to the default because ${activeDbFallbackReason})` : ''}. ` +
-      `Staged restore: ${staged ? restore : 'none'}.`,
-  )
-  if (activeDbFallbackReason) {
-    // Never let the app quietly open a different database than the one it was
-    // last using: that is indistinguishable from the data having vanished.
-    startupRecoveryMessage = [
-      `MarCat could not use the database it was last working with, because ${activeDbFallbackReason}.`,
-      `It has opened this one instead:\n${dbPath}`,
-      'If this is not the data you expect, close MarCat and restore a backup from Settings → Backups rather than working in it.',
-    ].join('\n\n')
-  }
+  appendStartupLog(`Database: ${dbPath}. Staged restore: ${staged ? restore : 'none'}.`)
   if (staged) await applyStagedRestore(dbPath, restore)
 
   let opened: Awaited<ReturnType<typeof openPreparedDb>>
