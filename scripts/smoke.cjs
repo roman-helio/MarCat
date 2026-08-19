@@ -745,7 +745,7 @@ async function main() {
   const mcpOutDir = fs.mkdtempSync(path.join(os.tmpdir(), 'marcat-mcpcfg-'))
   const mcpAi = appRouter.createCaller({
     db,
-    appPaths: { dbPath: 'X:/marcat.db', mcpServerPath: 'X:/server/index.js' },
+    appPaths: { dbPath: 'X:/marcat.db', mcpServerPath: 'X:/server/index.js', mcpUrl: 'http://127.0.0.1:47831/mcp' },
     agent: {
       async run() {
         return {
@@ -767,8 +767,12 @@ async function main() {
   const cfgPath = path.join(mcpOutDir, '.mcp.json')
   const wroteCfg = fs.existsSync(cfgPath)
   const cfgText = wroteCfg ? fs.readFileSync(cfgPath, 'utf8') : ''
-  console.log('ai wrote .mcp.json:', wroteCfg, '· points at server:', cfgText.includes('X:/server/index.js'))
-  if (!wroteCfg || !cfgText.includes('X:/server/index.js')) throw new Error('ai mcp_config write failed')
+  // The config must name the HTTP endpoint, never a stdio server path: that path
+  // moves on every launch of a portable build and opens a second writer.
+  const pointsAtEndpoint = cfgText.includes('http://127.0.0.1:47831/mcp')
+  const leaksServerPath = cfgText.includes('X:/server/index.js')
+  console.log('ai wrote .mcp.json:', wroteCfg, '· points at endpoint:', pointsAtEndpoint)
+  if (!wroteCfg || !pointsAtEndpoint || leaksServerPath) throw new Error('ai mcp_config write failed')
 
   // --- festivals: catalogue + per-game picks + rich fields + participation ---
   const fest = await caller.festivals.create({

@@ -90,28 +90,67 @@ export async function createVerifiedBackup(db: DB, destination: string, onWarnin
 }
 
 /**
- * Delete staged snapshots left behind by earlier runs, plus any `.partial` files
- * from before staging existed. Returns the number of bytes reclaimed.
+ * Reclaim staged files that are provably redundant, and nothing else.
+ *
+ * A `.partial` left next to a finished snapshot of the same size is a duplicate
+ * of a file that already exists, so deleting it loses nothing. A `.partial`
+ * with no finished counterpart is the opposite: the cleanup step failed after
+ * the snapshot was verified but before it was copied, or the finished copy was
+ * rotated away later, which makes the leftover the only surviving copy of that
+ * snapshot. Those are kept and reported, never swept.
  */
 export async function cleanupBackupStaging(backupDir: string, onWarning?: BackupWarning): Promise<number> {
   let reclaimed = 0
-  const sweep = async (dir: string, match: (name: string) => boolean): Promise<void> => {
-    if (!fs.existsSync(dir)) return
-    for (const name of fs.readdirSync(dir)) {
-      if (!match(name)) continue
-      const path = join(dir, name)
-      try {
-        const size = fs.statSync(path).size
-        await retryWindowsFileOp(() => fs.promises.rm(path, { force: true }))
-        reclaimed += size
-      } catch (error) {
-        onWarning?.(`Could not remove leftover snapshot ${path}`, error)
-      }
+  const remove = async (path: string): Promise<void> => {
+    try {
+      const size = fs.statSync(path).size
+      await retryWindowsFileOp(() => fs.promises.rm(path, { force: true }))
+      reclaimed += size
+    } catch (error) {
+      onWarning?.(`Could not remove leftover snapshot ${path}`, error)
     }
   }
-  await sweep(join(backupDir, STAGING_DIR), () => true)
-  await sweep(backupDir, (name) => name.endsWith('.partial'))
+
+  const staging = join(backupDir, STAGING_DIR)
+  if (fs.existsSync(staging)) {
+    for (const name of fs.readdirSync(staging)) await remove(join(staging, name))
+  }
+
+  if (!fs.existsSync(backupDir)) return reclaimed
+  for (const name of fs.readdirSync(backupDir)) {
+    if (!name.endsWith('.partial')) continue
+    const path = join(backupDir, name)
+    const finished = join(backupDir, name.slice(0, -'.partial'.length))
+    try {
+      if (!fs.existsSync(finished)) continue
+      if (fs.statSync(finished).size !== fs.statSync(path).size) continue
+    } catch {
+      continue
+    }
+    await remove(path)
+  }
   return reclaimed
+}
+
+/**
+ * Leftover `.partial` files that no finished snapshot duplicates. Each one is a
+ * complete, verified database that simply never got its final name.
+ */
+export function listOrphanedPartials(backupDir: string): DatabaseSnapshot[] {
+  if (!fs.existsSync(backupDir)) return []
+  const orphans: DatabaseSnapshot[] = []
+  for (const name of fs.readdirSync(backupDir)) {
+    if (!name.endsWith('.db.partial')) continue
+    const path = join(backupDir, name)
+    if (fs.existsSync(join(backupDir, name.slice(0, -'.partial'.length)))) continue
+    try {
+      const stats = fs.statSync(path)
+      if (stats.isFile() && stats.size >= 4096) orphans.push({ path, takenAt: stats.mtime, size: stats.size })
+    } catch {
+      /* unreadable entry */
+    }
+  }
+  return orphans.sort((a, b) => b.takenAt.getTime() - a.takenAt.getTime())
 }
 
 export interface DatabaseSnapshot {
@@ -152,7 +191,13 @@ export async function findVerifiedSnapshot(
   backupDir: string,
   options: { match?: (name: string) => boolean; onWarning?: BackupWarning } = {},
 ): Promise<DatabaseSnapshot | undefined> {
-  for (const snapshot of listDatabaseSnapshots(backupDir, options.match)) {
+  // Orphaned `.partial` files are candidates too: they are finished, verified
+  // snapshots that only lack their final name, and refusing to look at them
+  // would be discarding real backups over a filename.
+  const candidates = [...listDatabaseSnapshots(backupDir, options.match), ...listOrphanedPartials(backupDir)].sort(
+    (a, b) => b.takenAt.getTime() - a.takenAt.getTime(),
+  )
+  for (const snapshot of candidates) {
     try {
       await verifyDatabaseFile(snapshot.path)
       return snapshot

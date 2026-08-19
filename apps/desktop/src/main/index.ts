@@ -25,6 +25,7 @@ import {
   findVerifiedSnapshot,
   formatSalvageReport,
   listDatabaseSnapshots,
+  listOrphanedPartials,
   runMigrations,
   salvageDatabase,
   seedPublicFestivalCatalogue,
@@ -237,7 +238,18 @@ async function backupOnLaunch(database: DB, dbPath: string): Promise<void> {
     fs.mkdirSync(dir, { recursive: true })
     const reclaimed = await cleanupBackupStaging(dir, appendStartupLog)
     if (reclaimed > 0) {
-      appendStartupLog(`Reclaimed ${Math.round(reclaimed / 1_048_576)} MB of leftover snapshot files.`)
+      appendStartupLog(`Reclaimed ${Math.round(reclaimed / 1_048_576)} MB of duplicate snapshot files.`)
+    }
+    // Not clutter: each of these is a complete verified snapshot that only lost
+    // its final name, and for anything rotation has since removed it is the only
+    // copy left. Surfacing the size is the point; deleting them is the user's call.
+    const orphans = listOrphanedPartials(dir)
+    if (orphans.length > 0) {
+      const megabytes = Math.round(orphans.reduce((sum, file) => sum + file.size, 0) / 1_048_576)
+      appendStartupLog(
+        `${orphans.length} unnamed snapshots (${megabytes} MB) are kept in ${dir}. ` +
+          `They are usable backups; the newest is from ${orphans[0].takenAt.toISOString()}.`,
+      )
     }
     const stamp = new Date().toISOString().replace(/[:.]/g, '-')
     await createVerifiedBackup(database, join(dir, `${LAUNCH_SNAPSHOT_PREFIX}${stamp}.db`), appendStartupLog)
