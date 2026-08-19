@@ -33,9 +33,12 @@ export async function withSqliteBusyRetry<T>(
   operation: () => Promise<T>,
   options: SqliteBusyRetryOptions = {},
 ): Promise<T> {
-  const attempts = Math.max(1, options.attempts ?? 5)
+  // Older MarCat/MCP processes and external SQLite readers do not necessarily
+  // participate in the cooperative write lock. Give transient contention a
+  // bounded ~4.5s recovery window before surfacing an error to the UI.
+  const attempts = Math.max(1, options.attempts ?? 8)
   const initialDelayMs = Math.max(0, options.initialDelayMs ?? 50)
-  const maxDelayMs = Math.max(initialDelayMs, options.maxDelayMs ?? 800)
+  const maxDelayMs = Math.max(initialDelayMs, options.maxDelayMs ?? 1_500)
   let lastError: unknown
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {

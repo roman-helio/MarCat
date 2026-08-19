@@ -1,12 +1,145 @@
-import { createClient, type Client } from '@libsql/client'
+import { createClient, type Client, type InStatement, type Transaction, type TransactionMode } from '@libsql/client'
 import { drizzle, type LibSQLDatabase } from 'drizzle-orm/libsql'
 import * as schema from './schema'
+import { withSqliteBusyRetry } from './retry'
+import { currentDatabaseWritePurpose, databaseWriteLockForUrl, type DatabaseWriteLock } from './write-lock'
 
 export type DB = LibSQLDatabase<typeof schema>
 
 export interface CreateDbResult {
   db: DB
   client: Client
+  writeLock: DatabaseWriteLock | null
+}
+
+function statementSql(statement: InStatement): string {
+  return typeof statement === 'string' ? statement : statement.sql
+}
+
+function sqlKeyword(sql: string): string {
+  const withoutLeadingComments = sql.replace(/^\s*(?:(?:--[^\r\n]*(?:\r?\n|$))|(?:\/\*[\s\S]*?\*\/))\s*/g, '')
+  return (
+    withoutLeadingComments
+      .trimStart()
+      .match(/^([a-zA-Z]+)/)?.[1]
+      ?.toUpperCase() ?? 'SQL'
+  )
+}
+
+function isReadOnlyStatement(statement: InStatement): boolean {
+  return ['SELECT', 'EXPLAIN', 'VALUES'].includes(sqlKeyword(statementSql(statement)))
+}
+
+function needsExplicitCommit(statement: InStatement): boolean {
+  return ['INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'WITH'].includes(sqlKeyword(statementSql(statement)))
+}
+
+/**
+ * SQLite RETURNING can yield rows before the implicit autocommit is finalized.
+ * Await an explicit commit so callers never observe a write that is later rolled
+ * back when an older/external process holds the database lock.
+ */
+async function inCommittedWriteTransaction<T>(client: Client, operation: (transaction: Transaction) => Promise<T>) {
+  const transaction = await client.transaction('write')
+  try {
+    const result = await operation(transaction)
+    await transaction.commit()
+    return result
+  } catch (error) {
+    if (!transaction.closed) {
+      try {
+        await transaction.rollback()
+      } catch {
+        // Preserve the original write/commit error for retry classification.
+      }
+    }
+    throw error
+  } finally {
+    if (!transaction.closed) transaction.close()
+  }
+}
+
+function lockedTransaction(transaction: Transaction, release: () => void): Transaction {
+  let released = false
+  const releaseOnce = () => {
+    if (released) return
+    released = true
+    release()
+  }
+  return {
+    execute: (statement) => transaction.execute(statement),
+    batch: (statements) => transaction.batch(statements),
+    executeMultiple: (sql) => transaction.executeMultiple(sql),
+    async rollback() {
+      try {
+        await transaction.rollback()
+      } finally {
+        releaseOnce()
+      }
+    },
+    async commit() {
+      await transaction.commit()
+      releaseOnce()
+    },
+    close() {
+      try {
+        transaction.close()
+      } finally {
+        releaseOnce()
+      }
+    },
+    get closed() {
+      return transaction.closed
+    },
+  }
+}
+
+function coordinateLocalWrites(client: Client, writeLock: DatabaseWriteLock | null): Client {
+  if (!writeLock) return client
+  const runWrite = <T>(operation: () => Promise<T>, purpose: string) =>
+    writeLock.run(() => withSqliteBusyRetry(operation), currentDatabaseWritePurpose(purpose))
+
+  return {
+    execute: (statement) =>
+      isReadOnlyStatement(statement)
+        ? client.execute(statement)
+        : runWrite(
+            () =>
+              needsExplicitCommit(statement)
+                ? inCommittedWriteTransaction(client, (transaction) => transaction.execute(statement))
+                : client.execute(statement),
+            `SQL ${sqlKeyword(statementSql(statement))}`,
+          ),
+    batch: (statements, mode) =>
+      statements.every(isReadOnlyStatement) && mode !== 'write'
+        ? client.batch(statements, mode)
+        : runWrite(
+            () => inCommittedWriteTransaction(client, (transaction) => transaction.batch(statements)),
+            'SQL batch',
+          ),
+    migrate: (statements) => runWrite(() => client.migrate(statements), 'database migration'),
+    async transaction(mode?: TransactionMode) {
+      const effectiveMode = mode ?? 'write'
+      if (effectiveMode === 'read') return client.transaction(effectiveMode)
+      const release = await writeLock.acquire(currentDatabaseWritePurpose(`SQL transaction (${effectiveMode})`))
+      try {
+        const transaction = await withSqliteBusyRetry(() => client.transaction(effectiveMode))
+        return lockedTransaction(transaction, release)
+      } catch (error) {
+        release()
+        throw error
+      }
+    },
+    executeMultiple: (sql) => runWrite(() => client.executeMultiple(sql), 'SQL script'),
+    sync: () => runWrite(() => client.sync(), 'database sync'),
+    close: () => client.close(),
+    get closed() {
+      return client.closed
+    },
+    get protocol() {
+      return client.protocol
+    },
+  }
 }
 
 /**
@@ -16,9 +149,10 @@ export interface CreateDbResult {
  *                e.g. `file:C:/Users/you/AppData/Roaming/MarCat/marcat.db`.
  */
 export function createDb(fileUrl: string): CreateDbResult {
-  const client = createClient({ url: fileUrl })
+  const writeLock = databaseWriteLockForUrl(fileUrl)
+  const client = coordinateLocalWrites(createClient({ url: fileUrl }), writeLock)
   const db = drizzle(client, { schema })
-  return { db, client }
+  return { db, client, writeLock }
 }
 
 /**
