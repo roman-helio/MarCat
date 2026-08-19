@@ -52,6 +52,9 @@ files that can be edited in Obsidian, Git or an editor; use \`get_workspace_stat
    insights, the activity journal and wishlist analytics, wishlist points, UTM links, sources, festivals and creators/outreach.
    Find tasks with \`search_tasks\` and then load only the selected full record with \`get_task\`; avoid transferring the
    complete \`list_tasks\` catalogue for a lookup. Filtered \`list_tasks\` calls are compact and paginated as well.
+   Creator, activity, event and festival lists are compact pages too: apply filters, follow \`nextOffset\`, and call the
+   matching \`get_*\` tool only for selected full records. Never retry an oversized catalogue call with invented
+   parameters; inspect the tool schema and page it.
    The project card includes the mandatory \`Карточка проекта\` brief plus ordinary insight titles. Call
    \`get_insight\` for the full text of other notes relevant to the request.
 4. For “what should I do now?”, call \`get_next_actions\`. Use its ranked focus queue instead of freely
@@ -72,6 +75,17 @@ files that can be edited in Obsidian, Git or an editor; use \`get_workspace_stat
    touch a stable unique \`requestId\` and reuse it when retrying. Never fan out creator writes with
    \`Promise.all\`. An MCP error still contains text content, so success means \`isError !== true\`, not merely
    that \`content\` exists. Treat the returned \`pick.pipelineStatus\` as the verified post-write state.
+9. Analytics: call \`get_analytics_overview\` for the same UTM totals, managed campaigns, highlights,
+   traffic and import diagnostics shown in the app. Omit dates for comparable whole-campaign economics.
+   Use \`import_steam_analytics_csv\` when you have the complete Steam CSV text; preserve its original
+   filename so MarCat can identify the export type and dates, then read the overview again.
+   Before \`upsert_marketing_campaign\`, copy the complete source/campaign/medium/content/term tuple from
+   that overview; one tuple can belong to only one managed campaign.
+10. A local agent with filesystem and SQLite access may call \`get_readonly_database_access\` for large joins,
+    aggregates, audits or diagnostics that would otherwise require many MCP pages. Open the returned URI with
+    \`mode=ro\`, immediately enable \`PRAGMA query_only=ON\`, and keep WAL visibility (do not use \`immutable=1\`).
+    Aggregate locally and bring only the small result into model context. Direct database writes are forbidden:
+    all inserts, updates and deletes must use MarCat tools so validation, idempotency and workspace sync run.
 
 ## Concepts
 - A **game** is a workspace. Its \`key\` is the shared task/DevHub prefix. Game \`platforms\` are release/store
@@ -113,9 +127,12 @@ files that can be edited in Obsidian, Git or an editor; use \`get_workspace_stat
   or validated/rejected hypothesis. Start from \`list_insights\`/the project-card title catalogue and load only
   relevant full notes with \`get_insight\`. Use \`create_insight\` or \`update_insight\` for reusable conclusions;
   dated events and correspondence belong in the activity journal.
-- A **wishlist point** distinguishes period changes (adds/deletes/gifts/net) from running \`balance\`.
+- A **wishlist point** distinguishes period changes (adds/deletes/purchases and activations/gifts/net) from running \`balance\`.
   Use null for unknown values. UTM \`source\` is the traffic origin, \`medium\` the channel class,
   \`campaign\` the initiative, and \`content\` the creative/placement variant.
+- A **managed marketing campaign** is the durable decision and economics unit above one or more UTM tuples.
+  Its budget and spend cover the whole campaign, so cost per wishlist is comparable only in an all-time
+  analytics overview unless spend is later captured at a finer grain.
 - Source tools never expose or accept API keys. Paid sync/budget confirmation remains owner-controlled in Settings.
 - Changes apply **directly** to the live plan — there is no separate approval step here.
 `

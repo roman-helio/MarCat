@@ -22,7 +22,7 @@ async function main() {
   }
 
   // Apply everything BEFORE 0005 (the old schema).
-  for (const f of all.filter((f) => !f.startsWith('0005'))) await applySql(f)
+  for (const f of all.filter((f) => Number(f.slice(0, 4)) < 5)) await applySql(f)
 
   const ts = '2026-01-01T00:00:00Z'
   await client.execute({

@@ -13,7 +13,11 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     build: {
       rollupOptions: {
-        input: { index: resolve(__dirname, 'src/main/index.ts') },
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          'discovery-worker': resolve(__dirname, 'src/main/discovery-worker.ts'),
+          'promotion-worker': resolve(__dirname, 'src/main/promotion-worker.ts'),
+        },
       },
     },
   },

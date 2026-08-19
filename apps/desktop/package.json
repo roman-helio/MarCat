@@ -1,6 +1,6 @@
 {
   "name": "@marcat/desktop",
-  "version": "0.3.7",
+  "version": "0.3.12",
   "private": true,
   "description": "MarCat desktop app (Electron).",
   "author": "heliogames",
@@ -37,6 +37,7 @@
     "@vitejs/plugin-react": "^5.1.1",
     "@xyflow/react": "^12.3.5",
     "clsx": "^2.1.1",
+    "country-flag-icons": "^1.6.16",
     "date-fns": "^3.6.0",
     "drizzle-orm": "^0.45.2",
     "echarts": "^6.1.0",

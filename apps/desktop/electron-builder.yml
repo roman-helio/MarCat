@@ -43,6 +43,8 @@ extraResources:
     to: steam-festivals.json
   - from: ../../packages/mcp-server/dist/index.cjs
     to: mcp/index.cjs
+  - from: ../../packages/mcp-server/dist/promotion-worker.cjs
+    to: mcp/promotion-worker.cjs
   - from: ../../packages/mcp-server/package.json
     to: mcp/package.json
   - from: ../../node_modules/libsql

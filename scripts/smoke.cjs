@@ -23,19 +23,21 @@ function assertImpactModel() {
     point('2026-07-18', 150),
     point('2026-07-19', 140),
     point('2026-07-20', 130),
+    point('2026-07-21', 120),
   ]
   const isolated = computeImpact([event('isolated', '2026-07-18')], stableHistory).impacts[0]
-  if (isolated.addsAfter !== 420 || isolated.baseline !== 300 || isolated.classification !== 'hit')
+  if (isolated.netAfter !== 420 || isolated.baseline !== 300 || isolated.classification !== 'above_expected')
     throw new Error('project-relative impact or UTC date window failed')
 
   const overlapping = computeImpact(
     [event('first', '2026-07-18'), event('second', '2026-07-19')],
     stableHistory,
   ).impacts
-  if (overlapping[0]?.classification !== 'ambiguous' || overlapping[1]?.classification !== 'ambiguous')
+  if (overlapping[0]?.classification !== 'joint_effect' || overlapping[1]?.classification !== 'joint_effect')
     throw new Error('overlapping impact windows were assigned false causality')
 
   const volatile = [
+    point('2026-07-13', 100),
     point('2026-07-14', 243),
     point('2026-07-15', 188),
     point('2026-07-16', 144),
@@ -43,13 +45,15 @@ function assertImpactModel() {
     point('2026-07-18', 98),
     point('2026-07-19', 106),
     point('2026-07-20', 72),
+    point('2026-07-21', 120),
   ]
   const noisyReaction = computeImpact([event('noisy', '2026-07-19')], volatile).impacts[0]
-  if (noisyReaction.classification !== 'neutral')
-    throw new Error('normal project variation was incorrectly labelled an anti-hit')
+  if (noisyReaction.classification !== 'within_expected')
+    throw new Error('normal project variation was incorrectly labelled below expected')
 
-  const shortHistory = computeImpact([event('short', '2026-07-18')], volatile).impacts[0]
-  if (shortHistory.classification !== 'unknown') throw new Error('impact was scored without enough project history')
+  const shortHistory = computeImpact([event('short', '2026-07-18')], volatile.slice(1)).impacts[0]
+  if (shortHistory.classification !== 'insufficient')
+    throw new Error('impact was scored without enough project history')
 }
 
 async function main() {
@@ -298,6 +302,48 @@ async function main() {
     throw new Error('auto wishlist import erased a metric missing from the incoming CSV')
   }
 
+  // Steam's final DateLocal row is a live intraday snapshot. The next day's
+  // export owns the completed value; Wishlist Cohorts is a different report.
+  await db
+    .insert(schema.wishlistPoints)
+    .values({ gameId: g.id, date: '2026-08-03', adds: 5, deletes: 0, source: 'csv' })
+    .onConflictDoUpdate({
+      target: [schema.wishlistPoints.gameId, schema.wishlistPoints.date],
+      set: { adds: 5, deletes: 0, source: 'csv' },
+    })
+  const partialWishlist = await caller.analytics.importCsv({
+    gameId: g.id,
+    filename: 'SteamWishlists_123_2026-08-02_to_2026-08-03.csv',
+    fileModifiedAt: '2026-08-03T12:26:36.000Z',
+    csv: 'sep=,\nSteam Wishlisting data\n\nDateLocal,Game,Adds,Deletes,PurchasesAndActivations,Gifts\n2026-08-02,Example,9,1,0,0\n2026-08-03,Example,5,0,0,0\n',
+  })
+  const afterPartialWishlist = await caller.wishlists.series({ gameId: g.id })
+  if (partialWishlist.provisionalRows !== 1 || afterPartialWishlist.some((point) => point.date === '2026-08-03')) {
+    throw new Error('current-day Steam wishlist snapshot was treated as complete')
+  }
+  await caller.analytics.importCsv({
+    gameId: g.id,
+    filename: 'SteamWishlists_123_2026-08-02_to_2026-08-03.csv',
+    fileModifiedAt: '2026-08-04T08:00:00.000Z',
+    csv: 'sep=,\nSteam Wishlisting data\n\nDateLocal,Game,Adds,Deletes,PurchasesAndActivations,Gifts\n2026-08-02,Example,9,1,0,0\n2026-08-03,Example,19,0,0,0\n',
+  })
+  const completedAug3 = (await caller.wishlists.series({ gameId: g.id })).find((point) => point.date === '2026-08-03')
+  if (completedAug3?.adds !== 19) throw new Error('next Steam export did not replace the provisional day')
+
+  let cohortRejected = false
+  try {
+    await caller.analytics.importCsv({
+      gameId: g.id,
+      filename: 'SteamWishlistCohorts_123_2026-08-01_to_2026-08-04.csv',
+      fileModifiedAt: '2026-08-04T08:00:00.000Z',
+      csv: 'sep=,\nSteam Wishlist Cohort data\n\nDateLocal,Game,MonthCohort,PurchasesAndActivations,Gifts,TotalConversions\n',
+    })
+  } catch (error) {
+    cohortRejected = String(error?.message ?? error).includes('WISHLIST_COHORT_REPORT')
+  }
+  if (!cohortRejected) throw new Error('Steam Wishlist Cohort CSV was accepted as daily wishlist history')
+  await caller.wishlists.deletePoint({ id: completedAug3.id })
+
   const utmImport = await caller.analytics.importCsv({
     gameId: g.id,
     filename: 'utm_123_all_20260714_20260715_daily.csv',
@@ -318,6 +364,29 @@ async function main() {
     analyticsOverview.traffic.botVisits !== 40
   ) {
     throw new Error('localized Steam analytics CSV import failed')
+  }
+  const managedCampaign = await caller.analytics.upsertCampaign({
+    gameId: g.id,
+    name: 'Reveal launch',
+    objective: 'wishlist_growth',
+    status: 'active',
+    plannedStart: '2026-07-14',
+    plannedEnd: '2026-07-20',
+    evaluationWindowDays: 3,
+    budgetCents: 20_000,
+    spendCents: 12_000,
+    currency: 'USD',
+    notes: 'Smoke campaign',
+    touchpoints: [{ source: 'reddit', campaign: 'reveal', medium: 'social', content: 'post', term: '', eventId: null }],
+  })
+  const managedOverview = await caller.analytics.overview({ gameId: g.id })
+  const managed = managedOverview.managedCampaigns.find((campaign) => campaign.id === managedCampaign.id)
+  if (
+    managed?.performance.wishlists !== 6 ||
+    managed.costPerWishlistCents !== 2_000 ||
+    managedOverview.utm.campaigns[0]?.managedCampaignId !== managedCampaign.id
+  ) {
+    throw new Error('managed campaign aggregation or UTM linkage failed')
   }
   console.log('analytics CSV auto-detect:', utmImport.kind, trafficImport.kind, '· UTM wishlists:', 6)
 

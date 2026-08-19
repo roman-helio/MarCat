@@ -17,6 +17,16 @@ async function main() {
     const caller = appRouter.createCaller({ db: root.db })
     const game = await caller.games.create({ name: 'Outreach Safety' })
     const creator = await caller.creators.create({ name: 'Atomic Creator', handle: 'https://example.com/atomic' })
+    assert.equal(creator.entityType, 'person')
+    const platforms = JSON.stringify([{ platform: 'youtube' }, { platform: 'twitch' }])
+    const enrichedCreator = await caller.creators.update({
+      id: creator.id,
+      entityType: 'media',
+      primaryPlatform: 'youtube',
+      channelsJson: platforms,
+    })
+    assert.equal(enrichedCreator.entityType, 'media')
+    assert.deepEqual(JSON.parse(enrichedCreator.channelsJson), JSON.parse(platforms))
 
     await assert.rejects(
       caller.creators.setStatus({ gameId: game.id, creatorId: creator.id, pipelineStatus: 'contacted' }),
@@ -143,7 +153,7 @@ async function main() {
     assert.equal(retried, 'ok')
     assert.equal(attempts, 3)
 
-    console.log('CREATOR OUTREACH OK (strict status + atomic batch + idempotent retry)')
+    console.log('CREATOR OUTREACH OK (profile fields + strict status + atomic batch + idempotent retry)')
   } finally {
     for (const connection of extraConnections) connection.client.close()
     root.client.close()

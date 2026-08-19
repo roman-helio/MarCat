@@ -7,7 +7,7 @@ const { appRouter } = require('@marcat/core')
 const { createDb, fileUrlFromPath, runMigrations } = require('@marcat/db')
 
 async function main() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'marcat-mcp-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'marcat mcp-'))
   const dbFile = path.join(dir, 'marcat.db')
 
   // Seed a game directly, then close so the server opens a clean connection.
@@ -70,10 +70,51 @@ async function main() {
   const tools = await send('tools/list', {})
   const toolDefs = tools.result?.tools ?? []
   const toolNames = toolDefs.map((t) => t.name)
+  const analyticsBefore = await send('tools/call', {
+    name: 'get_analytics_overview',
+    arguments: { gameId: g.id },
+  })
+  const analyticsImported = await send('tools/call', {
+    name: 'import_steam_analytics_csv',
+    arguments: {
+      gameId: g.id,
+      filename: 'utm_123_all_20260714_20260714_daily.csv',
+      csv: [
+        'Date,Source,Campaign,Medium,Content,Keyword,Visits,Trusted Visits,Tracked Visits,Wishlists,Purchases,Activations',
+        '2026-07-14,reddit,launch,social,trailer,,10,9,8,2,0,0',
+      ].join('\n'),
+    },
+  })
+  const campaignCreated = await send('tools/call', {
+    name: 'upsert_marketing_campaign',
+    arguments: {
+      gameId: g.id,
+      name: 'MCP launch campaign',
+      objective: 'wishlist_growth',
+      status: 'active',
+      plannedStart: '2026-08-01',
+      plannedEnd: '2026-08-07',
+      evaluationWindowDays: 3,
+      budgetCents: 50000,
+      spendCents: 10000,
+      currency: 'USD',
+      notes: 'Managed by MCP test',
+      touchpoints: [{ source: 'reddit', campaign: 'launch', medium: 'social', content: 'trailer', term: '' }],
+    },
+  })
+  const analyticsAfter = await send('tools/call', {
+    name: 'get_analytics_overview',
+    arguments: { gameId: g.id },
+  })
+  const analyticsBeforeText = analyticsBefore.result?.content?.[0]?.text ?? ''
+  const analyticsImportedText = analyticsImported.result?.content?.[0]?.text ?? ''
+  const campaignCreatedText = campaignCreated.result?.content?.[0]?.text ?? ''
+  const analyticsAfterText = analyticsAfter.result?.content?.[0]?.text ?? ''
   const games = await send('tools/call', { name: 'list_games', arguments: {} })
+  const readonlyDatabaseAccess = await send('tools/call', { name: 'get_readonly_database_access', arguments: {} })
   const card = await send('tools/call', { name: 'get_project_card', arguments: { key: g.key } })
   const discoveryProfileCreated = await send('tools/call', {
-    name: 'create_youtube_discovery_profile',
+    name: 'create_creator_discovery_profile',
     arguments: {
       gameId: g.id,
       name: 'MCP history discovery',
@@ -89,11 +130,11 @@ async function main() {
   })
   const discoveryProfile = JSON.parse(discoveryProfileCreated.result?.content?.[0]?.text ?? '{}')
   const discoveryStarted = await send('tools/call', {
-    name: 'start_youtube_discovery',
-    arguments: { profileId: discoveryProfile.id },
+    name: 'start_creator_discovery',
+    arguments: { profileId: discoveryProfile.id, platforms: ['youtube', 'instagram'] },
   })
   const discoveryRuns = await send('tools/call', {
-    name: 'list_youtube_discovery_runs',
+    name: 'list_creator_discovery_runs',
     arguments: { gameId: g.id },
   })
   await send('tools/call', {
@@ -337,6 +378,10 @@ async function main() {
     name: 'list_creator_picks',
     arguments: { gameId: g.id },
   })
+  const creatorTouches = await send('tools/call', {
+    name: 'list_creator_touches',
+    arguments: { gameId: g.id, creatorId, limit: 1 },
+  })
   const gmassPreview = await send('tools/call', {
     name: 'preview_gmass_campaign',
     arguments: {
@@ -382,6 +427,14 @@ async function main() {
   const festivalList = await send('tools/call', { name: 'list_festivals', arguments: {} })
   const creatorList = await send('tools/call', { name: 'list_creators', arguments: {} })
   const activities = await send('tools/call', { name: 'list_activities', arguments: { gameId: g.id } })
+  const creatorSearch = await send('tools/call', {
+    name: 'search_creators',
+    arguments: { gameId: g.id, pickedOnly: true, hasBusinessEmail: true, limit: 1 },
+  })
+  const activitySearch = await send('tools/call', {
+    name: 'search_activities',
+    arguments: { gameId: g.id, query: 'journal entry edited', limit: 1 },
+  })
   const tasks = await send('tools/call', { name: 'list_tasks', arguments: { gameId: g.id } })
   const taskSearch = await send('tools/call', {
     name: 'search_tasks',
@@ -418,16 +471,27 @@ async function main() {
   const wishlistText = wishlist.result?.content?.[0]?.text ?? ''
   const creatorText = creatorRead.result?.content?.[0]?.text ?? ''
   const creatorPicksText = creatorPicks.result?.content?.[0]?.text ?? ''
+  const creatorTouchesText = creatorTouches.result?.content?.[0]?.text ?? ''
   const gmassPreviewText = gmassPreview.result?.content?.[0]?.text ?? ''
   const gmassReadText = gmassRead.result?.content?.[0]?.text ?? ''
   const festivalListText = festivalList.result?.content?.[0]?.text ?? ''
   const creatorListText = creatorList.result?.content?.[0]?.text ?? ''
+  const creatorSearchText = creatorSearch.result?.content?.[0]?.text ?? ''
+  const activitySearchText = activitySearch.result?.content?.[0]?.text ?? ''
+  const readonlyDatabaseAccessText = readonlyDatabaseAccess.result?.content?.[0]?.text ?? ''
+  const readonlyDatabaseAccessJson = JSON.parse(readonlyDatabaseAccessText || '{}')
   const discoveryStartedText = discoveryStarted.result?.content?.[0]?.text ?? ''
   const discoveryRunsText = discoveryRuns.result?.content?.[0]?.text ?? ''
   const activityTool = toolDefs.find((t) => t.name === 'create_activity')
   const creatorTool = toolDefs.find((t) => t.name === 'create_creator')
   const createTaskTool = toolDefs.find((t) => t.name === 'create_task')
   const updateTaskTool = toolDefs.find((t) => t.name === 'update_task')
+  const youtubeBulkReviewTool = toolDefs.find((t) => t.name === 'review_creator_discovery_candidates_bulk')
+  const youtubeCandidateListTool = toolDefs.find((t) => t.name === 'list_creator_discovery_candidates')
+  const youtubeBatchPreviewTool = toolDefs.find((t) => t.name === 'preview_creator_discovery_candidate_batch')
+  const youtubeRunListTool = toolDefs.find((t) => t.name === 'list_creator_discovery_runs')
+  const creatorListTool = toolDefs.find((t) => t.name === 'list_creators')
+  const activityListTool = toolDefs.find((t) => t.name === 'list_activities')
   const focusText = focus.result?.content?.[0]?.text ?? ''
   const partialCompleteText = partialComplete.result?.content?.[0]?.text ?? ''
   const finalCompleteText = finalComplete.result?.content?.[0]?.text ?? ''
@@ -440,7 +504,7 @@ async function main() {
   console.log('list_games sees seeded game:', (games.result?.content?.[0]?.text || '').includes('MCP Game'))
   console.log('get_project_card sees seeded game:', cardText.includes('MCP Game'))
   console.log(
-    'YouTube discovery MCP profile/queue:',
+    'Creator discovery MCP profile/queue:',
     discoveryProfileCreated.result?.isError !== true &&
       discoveryStartedText.includes('"duplicate": false') &&
       discoveryRunsText.includes('MCP history discovery'),
@@ -496,12 +560,28 @@ async function main() {
   )
   console.log('creator keys round-trip:', creatorPicksText.includes('DDDDD-EEEEE-FFFFF'))
   console.log(
+    'bounded creator outreach transport:',
+    creatorTouchesText.includes('"totalCount": 1') && creatorTouchesText.includes('"limit": 1'),
+  )
+  console.log(
     'GMass MCP preview/queue:',
     gmassPreviewText.includes('business@example.com') && gmassReadText.includes('"status": "queued"'),
   )
   console.log(
     'universal participation cost round-trip:',
     festivalListText.includes('"costUsd": 125') && creatorListText.includes('"costUsd": 750'),
+  )
+  console.log(
+    'bounded catalogue transport:',
+    creatorListText.includes('"totalCount": 1') &&
+      creatorSearchText.includes('"preferredContact"') &&
+      activitySearchText.includes('"totalCount": 1'),
+  )
+  console.log(
+    'read-only database escape hatch:',
+    readonlyDatabaseAccessText.includes('"mode": "read-only"') &&
+      readonlyDatabaseAccessText.includes('PRAGMA query_only=ON') &&
+      readonlyDatabaseAccessJson.sqliteUri?.includes('%20'),
   )
 
   clearTimeout(guard)
@@ -512,6 +592,31 @@ async function main() {
     throw new Error('MCP server version is not synchronized with its package')
   if (!toolNames.includes('create_task') || !toolNames.includes('list_tasks') || !toolNames.includes('search_tasks'))
     throw new Error('task tools missing')
+  if (
+    !toolNames.includes('search_creators') ||
+    !toolNames.includes('search_activities') ||
+    !toolNames.includes('get_readonly_database_access')
+  )
+    throw new Error('bounded catalogue/read-only database tools missing')
+  if (
+    !creatorListTool?.inputSchema?.properties?.limit ||
+    creatorListTool.inputSchema.properties.limit.maximum !== 25 ||
+    !creatorListTool.inputSchema.properties?.offset
+  )
+    throw new Error('creator catalogue is not paginated over MCP')
+  if (!activityListTool?.inputSchema?.properties?.limit || !activityListTool.inputSchema.properties?.offset)
+    throw new Error('activity catalogue is not paginated over MCP')
+  if (
+    !creatorListText.includes('"totalCount": 1') ||
+    creatorListText.includes('contactsJson') ||
+    creatorListText.includes('channelsJson') ||
+    !creatorSearchText.includes('"preferredContact"') ||
+    !activitySearchText.includes('"totalCount": 1') ||
+    !readonlyDatabaseAccessText.includes('"mode": "read-only"') ||
+    !readonlyDatabaseAccessText.includes('PRAGMA query_only=ON') ||
+    !readonlyDatabaseAccessJson.sqliteUri?.includes('%20')
+  )
+    throw new Error('bounded catalogue transport or read-only database guidance failed')
   if (
     !taskSearchText.includes('From MCP') ||
     !taskSearchText.includes('"totalCount": 1') ||
@@ -540,6 +645,9 @@ async function main() {
     'update_game',
     'add_wishlist_point',
     'get_wishlist_impact',
+    'get_analytics_overview',
+    'import_steam_analytics_csv',
+    'upsert_marketing_campaign',
     'list_utm_links',
     'build_utm_link',
     'list_sources',
@@ -554,23 +662,42 @@ async function main() {
     'create_gmass_campaign',
     'approve_gmass_campaign',
     'sync_gmass_campaign',
-    'list_youtube_discovery_profiles',
-    'create_youtube_discovery_profile',
-    'start_youtube_discovery',
-    'list_youtube_discovery_runs',
-    'get_youtube_discovery_run',
-    'control_youtube_discovery_run',
-    'list_youtube_discovery_candidates',
-    'review_youtube_discovery_candidate',
+    'list_creator_discovery_profiles',
+    'create_creator_discovery_profile',
+    'start_creator_discovery',
+    'list_creator_discovery_runs',
+    'get_creator_discovery_run',
+    'control_creator_discovery_run',
+    'list_creator_discovery_candidates',
+    'review_creator_discovery_candidate',
+    'preview_creator_discovery_candidate_batch',
+    'review_creator_discovery_candidates_bulk',
+    'get_creator_promotion_operation',
+    'control_creator_promotion_operation',
   ]) {
     if (!toolNames.includes(name)) throw new Error(`semantic domain tool missing: ${name}`)
+  }
+  if (
+    analyticsBefore.result?.isError === true ||
+    analyticsImported.result?.isError === true ||
+    campaignCreated.result?.isError === true ||
+    !analyticsImportedText.includes('"kind": "utm_daily"') ||
+    !analyticsImportedText.includes('"imported": 1') ||
+    !campaignCreatedText.includes('"id"') ||
+    !analyticsAfterText.includes('MCP launch campaign') ||
+    !analyticsAfterText.includes('"budgetCents": 50000') ||
+    !analyticsAfterText.includes('"wishlists": 2') ||
+    !analyticsAfterText.includes('"costPerWishlistCents": 5000') ||
+    !analyticsBeforeText.includes('"dataQuality"')
+  ) {
+    throw new Error('analytics import / overview / managed campaign MCP round-trip failed')
   }
   if (
     discoveryProfileCreated.result?.isError === true ||
     !discoveryStartedText.includes('"duplicate": false') ||
     !discoveryRunsText.includes('MCP history discovery')
   )
-    throw new Error('YouTube discovery MCP profile/queue round-trip failed')
+    throw new Error('Creator discovery MCP profile/queue round-trip failed')
   if (!JSON.stringify(activityTool?.inputSchema?.properties?.platform).includes('reddit'))
     throw new Error('activity platform enum missing from MCP JSON schema')
   if (!JSON.stringify(activityTool?.inputSchema?.properties?.placement).includes('subreddit'))
@@ -579,6 +706,16 @@ async function main() {
     throw new Error('creator topics must be a structured array, not encoded JSON')
   if (creatorTool?.inputSchema?.properties?.playedGames?.type !== 'array')
     throw new Error('creator playedGames must be a structured array, not encoded JSON')
+  if (!youtubeBulkReviewTool?.inputSchema?.properties?.confirm)
+    throw new Error('bulk creator discovery review must expose an explicit confirmation field')
+  if (!JSON.stringify(youtubeBulkReviewTool?.inputSchema?.properties?.decision).includes('restore'))
+    throw new Error('bulk creator discovery review must restore hidden historical results')
+  if (!youtubeRunListTool?.inputSchema?.properties?.profileId)
+    throw new Error('Creator discovery history must be filterable by profile over MCP')
+  for (const tool of [youtubeCandidateListTool, youtubeBatchPreviewTool, youtubeBulkReviewTool]) {
+    if (!tool?.inputSchema?.properties?.minReferenceMatches)
+      throw new Error('Creator discovery MCP filters must expose matched-reference count separately from fit')
+  }
   if (
     outreachBatchJson.results?.[0]?.pick?.pipelineStatus !== 'contacted' ||
     outreachReplayJson.results?.[0]?.replayed !== true ||
@@ -649,6 +786,8 @@ async function main() {
   )
     throw new Error('structured creator MCP round-trip failed')
   if (!creatorPicksText.includes('DDDDD-EEEEE-FFFFF')) throw new Error('creator keys MCP round-trip failed')
+  if (!creatorTouchesText.includes('"totalCount": 1') || !creatorTouchesText.includes('"limit": 1'))
+    throw new Error('creator touches MCP pagination failed')
   if (!gmassPreviewText.includes('business@example.com') || !gmassReadText.includes('"status": "queued"'))
     throw new Error('GMass MCP preview/queue round-trip failed')
   if (!festivalListText.includes('"costUsd": 125') || !creatorListText.includes('"costUsd": 750'))

@@ -9,7 +9,7 @@ studio's operating data into somebody else's SaaS database.
 - Tasks, dependencies, recurring work, campaign deadlines, and an activity journal
 - Steam wishlist imports, period comparisons, UTM links, and marketing-event attribution
 - Festival catalogue and project-specific participation tracking
-- Creator CRM, outreach history, public contact details, and campaign preparation
+- Creator Contacts, outreach history, public contact details, and campaign preparation
 - Source connectors and a shared typed API for the desktop app and bundled MCP server
 - Embedded AI assistance with inspectable, review-before-apply changesets
 
@@ -81,46 +81,58 @@ in the desktop Settings UI.
 For task lookup, use `search_tasks`: filtering happens in SQLite and returns a compact paginated catalogue.
 Call `get_task` only for the selected full record. `list_tasks` remains backward compatible, while calls that
 provide `search`, status/priority filters, pagination or `detail` use the same compact search path.
+Creator, activity, chart-event and festival catalogues use the same bounded page envelope:
+`totalCount`, `offset`, `limit`, `nextOffset`, and compact `items`. Full bodies, notes and evidence are loaded
+only for selected records through `get_creator`, `get_activity` or `get_festival`.
 
-## YouTube creator discovery
+Local agents that also have filesystem access can call `get_readonly_database_access` for large joins and
+aggregations. The returned SQLite URI must be opened with `mode=ro` plus `PRAGMA query_only=ON`; do not use
+`immutable=1`, because committed WAL rows must remain visible. Direct writes are unsupported and must go
+through MarCat tools so domain validation, idempotency and Markdown synchronization still run.
 
-Inside a game, **Influencers → Discovery** runs a durable, resumable YouTube search without using an
-LLM. A reusable search profile can contain competitor/reference games (with aliases and search terms)
-or topic facets such as history periods, required phrases, exclusions, languages, and seed channel IDs.
+## Multi-platform creator discovery
 
-The pipeline uses expensive search calls only to seed channels, scans each channel's recent uploads,
-and matches every video locally against all references. This produces an explainable fit score based on
-reference coverage, matching videos, recency, reach, and available public contact evidence. Public emails
-and links are extracted from channel/video descriptions; CAPTCHA-gated addresses on YouTube's About page
-are deliberately not bypassed.
+Inside a game, **Influencers → Discovery** runs one durable, resumable search without using an LLM for
+matching. A reusable profile contains competitor/reference games (with aliases and search terms) or topic
+facets such as history periods, required phrases, exclusions, and languages. One click automatically uses
+every configured source:
 
-Each run is an immutable staging artifact with progress, counters, errors, video evidence, contacts, and
-candidate decisions. Results never enter the production creator CRM automatically: **Add to CRM** is an
-explicit per-candidate action. Profile hashes, request hashes, stable YouTube channel IDs, and database
-unique constraints prevent accidental duplicate runs, quota calls, candidates, evidence, contacts, and
-CRM picks. After promotion, the influencer drawer shows the matched reference labels, discovery fit and
-clickable video evidence alongside the editable creator fields.
+- YouTube Data API for channel discovery and recent-video evidence
+- one ScrapeCreators connector for Instagram profiles, TikTok videos, and X profiles/posts
 
-The first visit presents an inline readiness guide until both prerequisites exist: a YouTube key and at
-least one project search profile. The key field writes to the same protected connector storage used by
-**Settings → Connectors → YouTube**; profiles and references stay project-scoped in Discovery. Once ready,
-the selected profile, run, fit threshold and candidate status remain persisted on the page.
+The deterministic scorer rewards distinct reference coverage, matching public content, recency, reach,
+and available contact evidence. Public business emails are collected from bios, descriptions, posts, and
+the first relevant page on a linked public website. Private/local network addresses are rejected, page
+reads are bounded, and login/CAPTCHA-gated contacts are never bypassed.
 
-Create a Google Cloud project, enable YouTube Data API v3, create an API key, and restrict that key to the
-YouTube API before pasting it into MarCat. Creating and using the key is not billed by request; Google
-limits use with project quotas instead. MarCat shows its exact local daily ledger for the
-key (search requests and other data units, reset on YouTube's Pacific-Time quota day). Calls made by other
-applications in the same Google Cloud project are not observable locally, so Google Cloud Console remains
-the source for project-wide usage. A quota-paused run automatically returns to the queue after the next
-Pacific-Time reset. Cached API responses and derived discovery data expire after 30 days.
-External MCP agents can create profiles, queue/control runs, inspect the staging artifact and explicitly
-review candidates. The embedded MarCat agent can propose and queue the same deterministic search as a
-reviewable changeset. Neither agent path can read or set the protected API key.
+Each run is an immutable staging artifact with a snapshotted profile, platforms, progress, counters, post
+or video evidence, contacts, and candidate decisions. Results never enter project Contacts automatically.
+A user or MCP agent filters by reference count, fit, and public-email availability, previews the exact
+create-versus-enrich count, and confirms one bulk action. Existing cards retain manual fields, outreach
+status, do-not-contact flags, and correspondence. Stable platform identities, public email/website
+identities, request hashes, and database constraints deduplicate same-platform accounts, cross-platform
+cards, contacts, evidence, and project picks.
+
+The first visit asks only for a search profile and at least one source. YouTube is free to call within
+Google's daily project quota. ScrapeCreators uses credits after any provider trial and supplies all three
+social networks with one key. MarCat displays the exact local YouTube quota ledger and the latest credit
+balance returned by ScrapeCreators; it does not spend another credit merely to poll the balance. A default
+run can spend at most ten times its per-network search-request setting, and an optional daily provider
+budget remains available in **Settings → Connectors**.
+
+Successful paid responses are cached for 30 days. Restarting, resuming, or forcing an identical run reuses
+that durable cache instead of silently spending the same credits again. Every run also remains queryable
+in SQLite and, when project files are enabled, is mirrored to
+`MarCat/Discovery/Creators/<run-id>.json`.
+
+External MCP agents can create profiles, queue/control runs, inspect historical results, preview compact
+batch counts, and explicitly add or hide up to 1,000 filtered creators per call without loading thousands
+of records into model context. The desktop app resolves the connected sources when it executes an
+MCP-queued run; neither MCP nor the embedded agent can read or set protected keys.
 
 See the official [YouTube Data API setup guide](https://developers.google.com/youtube/v3/getting-started),
-[API-key security guide](https://cloud.google.com/docs/authentication/api-keys),
-[quota guide](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits)
-and [developer policies](https://developers.google.com/youtube/terms/developer-policies).
+[YouTube quota guide](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits), and
+[ScrapeCreators API documentation](https://docs.scrapecreators.com/).
 
 ## Requirements
 
